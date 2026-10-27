@@ -7,9 +7,9 @@ from tools import TOOL_MAP, TOOLS_SCHEMA
 
 load_dotenv()
 
-API_KEY = os.getenv("DEEPSEEK_API_KEY")
+API_KEY = os.getenv("DEEPSEEK_API_KEY") or st.secrets.get("DEEPSEEK_API_KEY")
 if not API_KEY:
-    st.error("没有找到 DEEPSEEK_API_KEY。请检查 .env 文件是否在项目文件夹里。")
+    st.error("没有找到 DEEPSEEK_API_KEY。本地请检查 .env，云端请在 Settings → Secrets 中配置。")
     st.stop()
 
 client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com")
