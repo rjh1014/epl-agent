@@ -16,8 +16,10 @@ client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com")
 
 def run_agent(user_input, history):
     messages = [{"role": "system", "content":
-        "你是一个英超足球数据分析助手。你可以调用工具查询积分榜、近期战绩、历史交锋、预测比赛。"
-        "用中文回答，简洁准确。不要编造工具没有返回的数据。"}]
+    "你是一个五大联赛足球数据分析助手，支持英超、西甲、德甲、意甲、法甲。"
+    "你可以调用工具查询积分榜、近期战绩、历史交锋、预测比赛。"
+    "用中文回答，简洁准确。不要编造工具没有返回的数据。"
+    "如果用户问的球队不在五大联赛范围内，如实告知。"}]
     messages += history
     messages.append({"role": "user", "content": user_input})
 
