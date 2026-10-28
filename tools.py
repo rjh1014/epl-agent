@@ -1,4 +1,5 @@
 import os
+import json
 import pandas as pd
 from predict_v2 import predict
 
@@ -113,31 +114,42 @@ def query_team_matches(team_name, limit=10):
     games = [{"date": str(r['date'].date()), "home": r['home'], "away": r['away'], "score": f"{int(r['hg'])}-{int(r['ag'])}"} for _, r in team_matches.tail(limit).iterrows()]
     return {"team": team_en, "recent_matches": games}
 
-# 全新工具：预测某队的下一场比赛
 def predict_next_match(team_name):
     team_en = resolve(team_name); code = find_league(team_en)
     if code is None: return {"error": f"没找到球队 {team_name}。"}
     _, matches, upcoming = _load_league(code)
     if upcoming is None: return {"error": f"没有找到 {code} 的未来赛程数据。"}
-    
-    # 找该队的下一场
     next_game = upcoming[(upcoming['home'] == team_en) | (upcoming['away'] == team_en)].head(1)
     if len(next_game) == 0: return {"error": f"赛程库里没有 {team_en} 接下来的比赛。"}
-    
     r = next_game.iloc[0]
     h, a, date = r['home'], r['away'], str(r['date'].date())
     pred = predict(h, a, league_code=code, matches=matches)
+    return {"match_date": date, "home": h, "away": a, "prediction": {"p_home": pred['p_home'], "p_draw": pred['p_draw'], "p_away": pred['p_away']}}
+
+# ================= 新增 RAG 检索工具 =================
+def query_team_news(team_name):
+    """从本地知识库检索该球队的最新新闻动态"""
+    team_en = resolve(team_name)
+    try:
+        with open("news_db.json", "r", encoding="utf-8") as f:
+            news_data = json.load(f)
+    except FileNotFoundError:
+        return {"error": "新闻数据库文件 news_db.json 不存在"}
     
-    return {
-        "match_date": date, "home": h, "away": a,
-        "prediction": {"p_home": pred['p_home'], "p_draw": pred['p_draw'], "p_away": pred['p_away']}
-    }
+    # 简单搜索：看哪条新闻的 team 字段包含当前队名
+    results = [item["news"] for item in news_data if team_en.lower() in item["team"].lower()]
+    
+    if not results:
+        return {"team": team_en, "news": "近期没有查到这支球队的特殊新闻或伤停情况，状态正常。"}
+    
+    return {"team": team_en, "news": " | ".join(results)}
 
 TOOL_MAP = {
     "predict_match": predict_match, "query_standings": query_standings,
     "query_recent_form": query_recent_form, "query_head_to_head": query_head_to_head,
     "query_league_table": query_league_table, "query_team_matches": query_team_matches,
-    "predict_next_match": predict_next_match
+    "predict_next_match": predict_next_match,
+    "query_team_news": query_team_news  # 注册新工具
 }
 
 TOOLS_SCHEMA = [
@@ -147,5 +159,7 @@ TOOLS_SCHEMA = [
     {"type": "function", "function": {"name": "query_head_to_head", "description": "查询两支球队的历史交锋。", "parameters": {"type": "object", "properties": {"team_a": {"type": "string"}, "team_b": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["team_a", "team_b"]}}},
     {"type": "function", "function": {"name": "query_league_table", "description": "查询联赛前N名的积分榜。", "parameters": {"type": "object", "properties": {"league_name": {"type": "string"}, "top_n": {"type": "integer"}}, "required": ["league_name"]}}},
     {"type": "function", "function": {"name": "query_team_matches", "description": "查询某队最近的赛程比分。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["team_name"]}}},
-    {"type": "function", "function": {"name": "predict_next_match", "description": "预测某支球队下一场真实比赛的胜平负概率。当用户问'某队下一场会赢吗'时使用。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string", "description": "球队名称"}}, "required": ["team_name"]}}}
+    {"type": "function", "function": {"name": "predict_next_match", "description": "预测某支球队下一场真实比赛的胜平负概率。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
+    # 告诉大模型，遇到需要查新闻时调用它
+    {"type": "function", "function": {"name": "query_team_news", "description": "检索某支球队的最新新闻、伤病情况或突发状况。当需要了解场外因素、伤停情报时使用。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string", "description": "球队名称"}}, "required": ["team_name"]}}}
 ]

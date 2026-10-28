@@ -17,9 +17,8 @@ client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com")
 def run_agent(user_input, history):
     messages = [{"role": "system", "content":
             "你是一个五大联赛足球数据分析助手。"
-            "你可以调用工具查询积分榜、近期战绩、历史交锋、下一场赛程，并预测比赛。"
-            "重要规则：直接提取用户问题中的球队名称作为参数，不要擅自修改名字。"
-            "如果工具返回了结果，如实总结；如果工具报错，直接说明报错原因。"}]
+            "你可以调用工具查询积分榜、近期战绩、历史交锋、未来赛程，还可以检索球队最新新闻。"
+            "重要规则：1. 直接提取用户问题中的球队名称作为参数。2. 如果你要进行比赛预测，必须同时调用 query_team_news 查看是否有伤病或突发新闻，并在最终回答中结合新闻进行分析。"]
     messages += history
     messages.append({"role": "user", "content": user_input})
 
