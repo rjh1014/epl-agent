@@ -1,6 +1,8 @@
 import os
 import json
+import requests
 import pandas as pd
+from datetime import date
 from predict_v2 import predict
 
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
@@ -122,34 +124,61 @@ def predict_next_match(team_name):
     next_game = upcoming[(upcoming['home'] == team_en) | (upcoming['away'] == team_en)].head(1)
     if len(next_game) == 0: return {"error": f"赛程库里没有 {team_en} 接下来的比赛。"}
     r = next_game.iloc[0]
-    h, a, date = r['home'], r['away'], str(r['date'].date())
+    h, a, date_val = r['home'], r['away'], str(r['date'].date())
     pred = predict(h, a, league_code=code, matches=matches)
-    return {"match_date": date, "home": h, "away": a, "prediction": {"p_home": pred['p_home'], "p_draw": pred['p_draw'], "p_away": pred['p_away']}}
+    return {"match_date": date_val, "home": h, "away": a, "prediction": {"p_home": pred['p_home'], "p_draw": pred['p_draw'], "p_away": pred['p_away']}}
 
-# ================= 新增 RAG 检索工具 =================
+# ================= 接入真实 API 的 RAG 检索工具 =================
+API_FOOTBALL_KEY = "你的API-Football-Key"  # 换成你自己的
+
 def query_team_news(team_name):
-    """从本地知识库检索该球队的最新新闻动态"""
+    """从 API-Football 检索该球队当前的伤停/缺阵球员情报"""
     team_en = resolve(team_name)
+    
+    # 1. 读取本地存的 team_ids.json
     try:
-        with open("news_db.json", "r", encoding="utf-8") as f:
-            news_data = json.load(f)
+        with open("team_ids.json", "r", encoding="utf-8") as f:
+            team_ids = json.load(f)
     except FileNotFoundError:
-        return {"error": "新闻数据库文件 news_db.json 不存在"}
+        return {"error": "找不到 team_ids.json 文件，请先运行 fetch_team_ids.py"}
     
-    # 简单搜索：看哪条新闻的 team 字段包含当前队名
-    results = [item["news"] for item in news_data if team_en.lower() in item["team"].lower()]
+    # 2. 找对应的英文名去查 ID
+    team_id = None
+    for eng_name, tid in team_ids.items():
+        if eng_name.lower() in team_en.lower() or team_en.lower() in eng_name.lower():
+            team_id = tid
+            break
+            
+    if not team_id:
+        return {"team": team_en, "news": f"API 数据库中暂未收录 {team_en} 的伤停情报。"}
+
+    # 3. 请求伤停 API
+    url = f"https://v3.football.api-sports.io/injuries?team={team_id}&season=2025"
+    headers = {"x-apisports-key": API_FOOTBALL_KEY}
+    resp = requests.get(url, headers=headers)
     
-    if not results:
-        return {"team": team_en, "news": "近期没有查到这支球队的特殊新闻或伤停情况，状态正常。"}
+    if resp.status_code != 200:
+        return {"error": f"API 请求失败，状态码：{resp.status_code}"}
+        
+    data = resp.json()
+    if data["results"] == 0:
+        return {"team": team_en, "news": "当前 API 数据库中没有该球队的近期伤停记录（全员健康或数据未更新）。"}
     
-    return {"team": team_en, "news": " | ".join(results)}
+    news_items = []
+    # 只取最近 5 条伤停记录，防止信息过载
+    for item in data["response"][:5]:
+        player_name = item["player"]["name"]
+        reason = item["player"].get("reason", "原因未知")
+        news_items.append(f"{player_name} ({reason})")
+    
+    return {"team": team_en, "news": "近期伤停名单：" + ", ".join(news_items)}
 
 TOOL_MAP = {
     "predict_match": predict_match, "query_standings": query_standings,
     "query_recent_form": query_recent_form, "query_head_to_head": query_head_to_head,
     "query_league_table": query_league_table, "query_team_matches": query_team_matches,
     "predict_next_match": predict_next_match,
-    "query_team_news": query_team_news  # 注册新工具
+    "query_team_news": query_team_news
 }
 
 TOOLS_SCHEMA = [
@@ -160,6 +189,5 @@ TOOLS_SCHEMA = [
     {"type": "function", "function": {"name": "query_league_table", "description": "查询联赛前N名的积分榜。", "parameters": {"type": "object", "properties": {"league_name": {"type": "string"}, "top_n": {"type": "integer"}}, "required": ["league_name"]}}},
     {"type": "function", "function": {"name": "query_team_matches", "description": "查询某队最近的赛程比分。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "predict_next_match", "description": "预测某支球队下一场真实比赛的胜平负概率。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
-    # 告诉大模型，遇到需要查新闻时调用它
-    {"type": "function", "function": {"name": "query_team_news", "description": "检索某支球队的最新新闻、伤病情况或突发状况。当需要了解场外因素、伤停情报时使用。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string", "description": "球队名称"}}, "required": ["team_name"]}}}
+    {"type": "function", "function": {"name": "query_team_news", "description": "检索某支球队的最新真实伤停情报。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}}
 ]
