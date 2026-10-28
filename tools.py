@@ -186,20 +186,8 @@ def _get_team_id(team_en):
             return tid
     return None
 
-def _get_next_fixture_id(team_id):
-    """查询某队下一场比赛的 fixture_id"""
-    url = f"https://v3.football.api-sports.io/fixtures?team={team_id}&next=1"
-    headers = {"x-apisports-key": API_FOOTBALL_KEY}
-    resp = requests.get(url, headers=headers, timeout=10)
-    if resp.status_code != 200:
-        return None
-    data = resp.json()
-    if data.get("results", 0) == 0:
-        return None
-    return data["response"][0]["fixture"]["id"]
-
 def query_match_odds(home_team, away_team):
-    """查询两队下一场比赛的真实赔率，并计算去水后的市场公平概率"""
+    """精准查询两队交锋的真实赔率，并计算去水后的市场公平概率"""
     home, away = resolve(home_team), resolve(away_team)
     
     home_id = _get_team_id(home)
@@ -207,25 +195,37 @@ def query_match_odds(home_team, away_team):
     if not home_id or not away_id:
         return {"status": "no_data", "message": f"球队 ID 未收录，无法查询赔率。"}
     
-    fixture_id = _get_next_fixture_id(home_id)
-    if not fixture_id:
-        return {"status": "no_data", "message": f"未能找到 {home} 的下一场比赛，无法查询赔率。"}
-    
-    # 查询赔率（bookmaker=8 是 Bet365）
-    url = f"https://v3.football.api-sports.io/odds?fixture={fixture_id}&bookmaker=8"
+    # 改进点：通过 h2h 查询两队之间的比赛，找到最近一场未开始的
+    url = f"https://v3.football.api-sports.io/fixtures/h2h={home_id}-{away_id}"
     headers = {"x-apisports-key": API_FOOTBALL_KEY}
     resp = requests.get(url, headers=headers, timeout=10)
     if resp.status_code != 200:
-        return {"status": "no_data", "message": f"赔率接口请求失败，状态码：{resp.status_code}"}
+        return {"status": "no_data", "message": f"交锋赛程接口请求失败，状态码：{resp.status_code}"}
     
-    data = resp.json()
+    fixtures_data = resp.json()
+    if fixtures_data.get("results", 0) == 0:
+        return {"status": "no_data", "message": f"未找到 {home} 和 {away} 的交锋赛程，无法查询赔率。"}
+    
+    # 寻找未开始的比赛（状态为 NS）或者是未来的比赛
+    upcoming_fixtures = [f for f in fixtures_data["response"] if f["fixture"]["status"]["short"] in ["NS", "TBD"]]
+    if not upcoming_fixtures:
+        return {"status": "no_data", "message": f"两队近期没有未开始的对决，暂无法获取实时赔率。"}
+    
+    fixture_id = upcoming_fixtures[0]["fixture"]["id"]
+    
+    # 查询赔率（bookmaker=8 是 Bet365）
+    url_odds = f"https://v3.football.api-sports.io/odds?fixture={fixture_id}&bookmaker=8"
+    resp_odds = requests.get(url_odds, headers=headers, timeout=10)
+    if resp_odds.status_code != 200:
+        return {"status": "no_data", "message": f"赔率接口请求失败，状态码：{resp_odds.status_code}"}
+    
+    data = resp_odds.json()
     if data.get("results", 0) == 0:
         return {"status": "no_data", "message": f"当前没有 {home} vs {away} 的实时赔率数据（免费版赔率覆盖有限）。"}
     
     try:
         bookmaker_data = data["response"][0]["bookmakers"][0]
         bets = bookmaker_data["bets"]
-        # 找到 Match Winner (ID=1) 的赔率
         match_winner = next(b for b in bets if b["id"] == 1)
         values = match_winner["values"]
         
@@ -270,5 +270,5 @@ TOOLS_SCHEMA = [
     {"type": "function", "function": {"name": "query_team_matches", "description": "查询某队最近的赛程比分。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "predict_next_match", "description": "预测某支球队下一场真实比赛的胜平负概率。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "query_team_news", "description": "检索某支球队的最新真实伤停情报。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
-    {"type": "function", "function": {"name": "query_match_odds", "description": "查询两队下一场比赛的真实博彩赔率，并计算去水后的市场公平概率。用于对比模型预测与市场预期的差异。", "parameters": {"type": "object", "properties": {"home_team": {"type": "string"}, "away_team": {"type": "string"}}, "required": ["home_team", "away_team"]}}}
+    {"type": "function", "function": {"name": "query_match_odds", "description": "查询两队交锋的真实博彩赔率，并计算去水后的市场公平概率。用于对比模型预测与市场预期的差异。", "parameters": {"type": "object", "properties": {"home_team": {"type": "string"}, "away_team": {"type": "string"}}, "required": ["home_team", "away_team"]}}}
 ]
