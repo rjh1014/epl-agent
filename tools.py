@@ -6,23 +6,39 @@ from predict_v2 import predict
 
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
 
+# 极尽详细的别名库
 ALIAS = {
-    "利物浦": "Liverpool FC", "曼城": "Manchester City FC", "阿森纳": "Arsenal FC", "切尔西": "Chelsea FC",
-    "曼联": "Manchester United FC", "热刺": "Tottenham Hotspur FC", "南安普顿": "Southampton FC", "纽卡斯尔": "Newcastle United FC",
-    "维拉": "Aston Villa FC", "布莱顿": "Brighton & Hove Albion FC", "伯恩茅斯": "AFC Bournemouth", "布伦特福德": "Brentford FC",
-    "富勒姆": "Fulham FC", "水晶宫": "Crystal Palace FC", "埃弗顿": "Everton FC", "西汉姆": "West Ham United FC",
-    "狼队": "Wolverhampton Wanderers FC", "莱斯特城": "Leicester City FC", "伊普斯维奇": "Ipswich Town FC", "诺丁汉森林": "Nottingham Forest FC",
-    "皇马": "Real Madrid CF", "巴萨": "FC Barcelona", "马竞": "Club Atlético de Madrid", "比利亚雷亚尔": "Villarreal CF",
-    "毕尔巴鄂": "Athletic Club", "皇家社会": "Real Sociedad", "贝蒂斯": "Real Betis", "塞维利亚": "Sevilla FC",
-    "拜仁": "FC Bayern München", "多特": "Borussia Dortmund", "勒沃库森": "Bayer 04 Leverkusen", "莱比锡": "RB Leipzig",
-    "法兰克福": "Eintracht Frankfurt", "斯图加特": "VfB Stuttgart",
-    "国米": "Inter Milan", "AC米兰": "AC Milan", "尤文": "Juventus FC", "那不勒斯": "SSC Napoli",
-    "罗马": "AS Roma", "拉齐奥": "SS Lazio", "亚特兰大": "Atalanta BC",
-    "巴黎": "Paris Saint-Germain FC", "马赛": "Olympique de Marseille", "摩纳哥": "AS Monaco FC", "里昂": "Olympique Lyonnais", "里尔": "LOSC Lille",
+    # 英超
+    "利物浦": "Liverpool FC", "曼城": "Manchester City FC", "曼彻斯特城": "Manchester City FC", 
+    "阿森纳": "Arsenal FC", "切尔西": "Chelsea FC", "曼联": "Manchester United FC", 
+    "曼彻斯特联": "Manchester United FC", "热刺": "Tottenham Hotspur FC", "托特纳姆热刺": "Tottenham Hotspur FC",
+    "纽卡斯尔": "Newcastle United FC", "纽卡斯尔联": "Newcastle United FC", "维拉": "Aston Villa FC", 
+    "阿斯顿维拉": "Aston Villa FC", "布莱顿": "Brighton & Hove Albion FC", "西汉姆": "West Ham United FC",
+    "西汉姆联": "West Ham United FC", "狼队": "Wolverhampton Wanderers FC", "埃弗顿": "Everton FC", 
+    "富勒姆": "Fulham FC", "水晶宫": "Crystal Palace FC", "布伦特福德": "Brentford FC", 
+    "莱斯特城": "Leicester City FC", "伊普斯维奇": "Ipswich Town FC", "诺丁汉森林": "Nottingham Forest FC",
+    # 西甲
+    "皇马": "Real Madrid CF", "皇家马德里": "Real Madrid CF", "Real Madrid": "Real Madrid CF",
+    "巴萨": "FC Barcelona", "巴塞罗那": "FC Barcelona", "Barcelona": "FC Barcelona",
+    "马竞": "Club Atlético de Madrid", "马德里竞技": "Club Atlético de Madrid",
+    "比利亚雷亚尔": "Villarreal CF", "毕尔巴鄂": "Athletic Club", "毕尔巴鄂竞技": "Athletic Club",
+    "皇家社会": "Real Sociedad", "贝蒂斯": "Real Betis", "皇家贝蒂斯": "Real Betis", "塞维利亚": "Sevilla FC",
+    # 德甲
+    "拜仁": "FC Bayern München", "拜仁慕尼黑": "FC Bayern München", "Bayern": "FC Bayern München",
+    "多特": "Borussia Dortmund", "多特蒙德": "Borussia Dortmund", "勒沃库森": "Bayer 04 Leverkusen",
+    "莱比锡": "RB Leipzig", "法兰克福": "Eintracht Frankfurt", "斯图加特": "VfB Stuttgart",
+    # 意甲
+    "国米": "Inter Milan", "国际米兰": "Inter Milan", "AC米兰": "AC Milan", "尤文": "Juventus FC", 
+    "尤文图斯": "Juventus FC", "那不勒斯": "SSC Napoli", "罗马": "AS Roma", "拉齐奥": "SS Lazio", "亚特兰大": "Atalanta BC",
+    # 法甲
+    "巴黎": "Paris Saint-Germain FC", "大巴黎": "Paris Saint-Germain FC", "巴黎圣日耳曼": "Paris Saint-Germain FC",
+    "马赛": "Olympique de Marseille", "摩纳哥": "AS Monaco FC", "里昂": "Olympique Lyonnais", "里尔": "LOSC Lille",
 }
 
 def resolve(name):
-    return ALIAS.get(name.strip(), name.strip())
+    name = name.strip()
+    # 如果用户输入的名字在别名库，返回全名；否则原样返回
+    return ALIAS.get(name, name)
 
 _cache = {}
 
@@ -46,7 +62,7 @@ def find_league(team_en):
 
 def query_standings(team_name):
     team_en = resolve(team_name); code = find_league(team_en)
-    if code is None: return {"error": f"没找到球队 {team_name}。"}
+    if code is None: return {"error": f"没找到球队 {team_name}（解析为 {team_en}）。"}
     standings, _, _ = _load_league(code)
     row = standings[standings['team'] == team_en]
     r = row.iloc[0]
@@ -93,7 +109,7 @@ def query_head_to_head(team_a, team_b, limit=5):
 def predict_match(home_team, away_team):
     home, away = resolve(home_team), resolve(away_team)
     code = find_league(home) or find_league(away)
-    if code is None: return {"error": f"没找到球队。"}
+    if code is None: return {"error": f"没找到球队 {home_team} 或 {away_team}。"}
     _, matches, _ = _load_league(code)
     try: return predict(home, away, league_code=code, matches=matches)
     except IndexError: return {"error": f"没找到比赛数据。"}
@@ -117,7 +133,7 @@ def query_team_matches(team_name, limit=10):
 
 def predict_next_match(team_name):
     team_en = resolve(team_name); code = find_league(team_en)
-    if code is None: return {"error": f"没找到球队 {team_name}。"}
+    if code is None: return {"error": f"没找到球队 {team_name}（解析为 {team_en}）。"}
     _, matches, upcoming = _load_league(code)
     if upcoming is None: return {"error": f"没有找到 {code} 的未来赛程数据。"}
     next_game = upcoming[(upcoming['home'] == team_en) | (upcoming['away'] == team_en)].head(1)
@@ -128,19 +144,18 @@ def predict_next_match(team_name):
     return {"match_date": date_val, "home": h, "away": a, "prediction": {"p_home": pred['p_home'], "p_draw": pred['p_draw'], "p_away": pred['p_away']}}
 
 # ================= 接入真实 API 的 RAG 检索工具 =================
-API_FOOTBALL_KEY ="a8b2fcc1bddf8cc9b3ddb234170da171"  # 记得换成你的真实Key
+# 请务必将这里换成你的真实 Key
+API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"
 
 def query_team_news(team_name):
     team_en = resolve(team_name)
     
-    # 读取本地存的 team_ids.json
     try:
         with open("team_ids.json", "r", encoding="utf-8") as f:
             team_ids = json.load(f)
     except FileNotFoundError:
-        return {"error": "找不到 team_ids.json 文件，请先确保该文件在项目根目录。"}
+        return {"error": "找不到 team_ids.json 文件。"}
     
-    # 找对应的英文名去查 ID
     team_id = None
     for eng_name, tid in team_ids.items():
         if eng_name.lower() in team_en.lower() or team_en.lower() in eng_name.lower():
@@ -150,13 +165,12 @@ def query_team_news(team_name):
     if not team_id:
         return {"team": team_en, "news": f"API 数据库中暂未收录 {team_en} 的伤停情报。"}
 
-    # 请求伤停 API
     url = f"https://v3.football.api-sports.io/injuries?team={team_id}&season=2025"
     headers = {"x-apisports-key": API_FOOTBALL_KEY}
     resp = requests.get(url, headers=headers)
     
     if resp.status_code != 200:
-        return {"error": f"API 请求失败，状态码：{resp.status_code}"}
+        return {"error": f"API 请求失败，状态码：{resp.status_code}，请检查 Key 是否正确。"}
         
     data = resp.json()
     if data["results"] == 0:
