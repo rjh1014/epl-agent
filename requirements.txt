@@ -3,3 +3,6 @@ openai
 python-dotenv
 pandas
 scikit-learn
+requests
+beautifulsoup4
+lxml
