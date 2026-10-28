@@ -2,9 +2,14 @@ import os
 import json
 import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 from qiuxiaoce import QiuXiaoCeClient
 from predict_v2 import predict
+
+# ================= ⚠️ 请在这里填入你的真实 Key =================
+# 本地测试时，直接把引号里的字改成你的真实Key；云端部署会自动读取环境变量
+QIUXIAOCE_API_KEY = os.getenv("QIUXIAOCE_API_KEY", "qxz_v4xUbSpe5oOUK3yYVeieV6Cs")
+API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "a8b2fcc1bddf8cc9b3ddb234170da171")
+# ================================================================
 
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
 
@@ -37,6 +42,7 @@ STANDARD_CN = {
 }
 
 PROXY_URL = None
+qxc_client = QiuXiaoCeClient(api_key=QIUXIAOCE_API_KEY)
 
 def resolve(name):
     name = name.strip()
@@ -166,48 +172,36 @@ def predict_next_match(team_name):
     pred = predict_match(h, a)
     return {"match_date": date_val, "home": h, "away": a, "prediction": pred}
 
-# ================= 接入球小策真实伤停数据 =================
-API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"  # 备用
-QIUXIAOCE_API_KEY = "qxz_v4xUbSpe5oOUK3yYVeieV6Cs"      # ⚠️ 替换成你刚复制的球小策Key
-
-qxc_client = QiuXiaoCeClient(api_key=QIUXIAOCE_API_KEY)
-
 def query_team_news(team_name):
-    """通过球小策获取结构化伤停情报（带智能解析与生成状态处理）"""
+    """通过球小策获取结构化伤停情报（修复了中文编码问题）"""
     team_en = resolve(team_name)
-    team_cn = STANDARD_CN.get(team_en, team_name)
     
-    # 1. 搜索球队
     try:
-        teams = qxc_client.search_teams(team_cn)
+        search_name = team_en.replace("FC", "").replace("CF", "").strip()
+        teams = qxc_client.search_teams(search_name)
         if not teams:
-            return {"status": "no_data", "message": f"球小策未收录 {team_cn}。"}
+            return {"status": "no_data", "message": f"球小策未收录 {team_name}。"}
         qxc_team_id = teams[0]["team_id"]
     except Exception as e:
         return {"status": "no_data", "message": f"球队搜索失败: {str(e)}"}
     
-    # 2. 拉取最新赛季赛程，优先找未开始的比赛
     try:
         fixtures = qxc_client.get_fixtures(team_id=qxc_team_id, season=2026)
         if not fixtures:
-            # 如果 2026 没有，回退到 2024 拿最新一场
             fixtures = qxc_client.get_fixtures(team_id=qxc_team_id, season=2024)
             
         if not fixtures:
-            return {"status": "no_data", "message": f"未找到 {team_cn} 的赛程数据。"}
+            return {"status": "no_data", "message": f"未找到 {team_name} 的赛程数据。"}
             
-        # 优先找状态为 NS (未开始) 的比赛，找不到就拿最后一场
         upcoming = [f for f in fixtures if f.get("status") in ("NS", "TBD", "未开始")]
         target_match = upcoming[0] if upcoming else fixtures[-1]
         fixture_id = target_match["fixture_id"]
     except Exception as e:
         return {"status": "no_data", "message": f"赛程查询失败: {str(e)}"}
     
-    # 3. 拉取 Match Pack
     try:
         pack_data = qxc_client.get_match_pack(fixture_id=fixture_id)
         
-        # 检查是否正在生成中
         generation = pack_data.get("meta", {}).get("generation", {})
         if generation.get("status") == "generating":
             return {
@@ -221,13 +215,11 @@ def query_team_news(team_name):
         if not pack:
             return {"status": "no_data", "message": "球小策未返回有效比赛数据。"}
             
-        # 尝试从 pack 中提取伤停（不同接口可能字段名不同）
         injuries = pack.get("injuries") or pack.get("missing_players") or pack.get("lineups_injuries")
         
         if not injuries:
             return {"team": team_en, "source": "球小策", "news": "根据球小策数据，该场比赛暂无明确伤停记录。"}
             
-        # 如果提取到了伤停列表，进行拼接
         if isinstance(injuries, list):
             news_text = " | ".join([f"{i.get('player_name', '未知球员')} ({i.get('reason', '原因未知')})" for i in injuries[:8]])
         elif isinstance(injuries, dict):
@@ -246,7 +238,6 @@ def query_team_news(team_name):
     except Exception as e:
         return {"status": "no_data", "message": f"Match Pack 查询异常: {str(e)}"}
 
-# ================= 竞彩赔率 =================
 def query_match_odds(home_team, away_team):
     home_cn = STANDARD_CN.get(resolve(home_team), home_team)
     away_cn = STANDARD_CN.get(resolve(away_team), away_team)
