@@ -67,3 +67,8 @@ if user_input := st.chat_input("输入你的问题…"):
         st.write(answer)
 
     st.session_state.history.append({"role": "assistant", "content": answer})
+if st.button("点我测试西甲数据"):
+    import os
+    st.write("当前目录下的文件：", [f for f in os.listdir('.') if f.endswith('.csv') or f.endswith('.pkl')])
+    from tools import query_standings
+    st.write("查巴萨的结果：", query_standings("巴萨"))
