@@ -1,4 +1,5 @@
 import pandas as pd
+import joblib
 import pickle
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -78,7 +79,5 @@ for code in LEAGUES:
         print(f"{LEAGUE_NAMES[code]}: 逻辑回归 {lr_acc:.3f} | 随机森林 {rf_acc:.3f} -> 保存随机森林")
         models[code] = rf_model
 
-with open("models_multi.pkl", "wb") as f:
-    pickle.dump(models, f)
-
-print("\n全明星模型组合已保存到 models_multi.pkl")
+joblib.dump(models, "models_multi.joblib")
+print("\n全明星模型组合已保存到 models_multi.joblib")

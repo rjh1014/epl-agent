@@ -1,8 +1,8 @@
-import pickle
 import pandas as pd
+import joblib
 
-with open("models_multi.pkl", "rb") as f:
-    MODELS = pickle.load(f)
+# 使用 joblib 加载模型
+MODELS = joblib.load("models_multi.joblib")
 
 def _team_stats_from_matches(matches, team):
     played = matches[(matches['home'] == team) | (matches['away'] == team)]
@@ -45,7 +45,6 @@ def predict(home_team, away_team, league_code="PL", matches=None):
     h_gf, h_ga, h_pts, h_recent = _team_stats_from_matches(matches, home_team)
     a_gf, a_ga, a_pts, a_recent = _team_stats_from_matches(matches, away_team)
 
-    # 特征列名和顺序必须和 train_multi_leagues.py 里完全一致
     X = pd.DataFrame([{
         "home_gf": h_gf, "home_ga": h_ga, "home_pts": h_pts, "home_recent": h_recent,
         "away_gf": a_gf, "away_ga": a_ga, "away_pts": a_pts, "away_recent": a_recent,

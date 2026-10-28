@@ -2,7 +2,9 @@ streamlit
 openai
 python-dotenv
 pandas
-scikit-learn
+numpy==1.26.4
+scikit-learn==1.5.2
+joblib
 requests
 beautifulsoup4
 lxml
