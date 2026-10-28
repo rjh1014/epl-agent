@@ -106,7 +106,6 @@ def query_head_to_head(team_a, team_b, limit=5):
     a, b = resolve(team_a), resolve(team_b)
     code_a = find_league(a)
     code_b = find_league(b)
-    # 优先用主队所在联赛的数据；如果两队在不同联赛，尝试在两者中找交锋记录
     codes = [c for c in [code_a, code_b] if c is not None]
     if not codes:
         return {"error": f"没找到 {team_a} 或 {team_b} 的记录。"}
@@ -145,7 +144,8 @@ def predict_match(home_team, away_team):
         return {"error": f"没找到球队 {home_team} 或 {away_team}。"}
     _, matches = _load_league(code)
     try:
-        return predict(home, away, matches)
+        # 这里修复了传参错误，加上了 league_code=code
+        return predict(home, away, league_code=code, matches=matches)
     except IndexError:
         return {"error": f"没找到球队 {home_team} 或 {away_team} 的比赛数据。"}
 
