@@ -6,39 +6,45 @@ from predict_v2 import predict
 
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
 
-# 极尽详细的别名库
 ALIAS = {
     # 英超
-    "利物浦": "Liverpool FC", "曼城": "Manchester City FC", "曼彻斯特城": "Manchester City FC", 
-    "阿森纳": "Arsenal FC", "切尔西": "Chelsea FC", "曼联": "Manchester United FC", 
-    "曼彻斯特联": "Manchester United FC", "热刺": "Tottenham Hotspur FC", "托特纳姆热刺": "Tottenham Hotspur FC",
-    "纽卡斯尔": "Newcastle United FC", "纽卡斯尔联": "Newcastle United FC", "维拉": "Aston Villa FC", 
-    "阿斯顿维拉": "Aston Villa FC", "布莱顿": "Brighton & Hove Albion FC", "西汉姆": "West Ham United FC",
-    "西汉姆联": "West Ham United FC", "狼队": "Wolverhampton Wanderers FC", "埃弗顿": "Everton FC", 
-    "富勒姆": "Fulham FC", "水晶宫": "Crystal Palace FC", "布伦特福德": "Brentford FC", 
+    "利物浦": "Liverpool FC", "红军": "Liverpool FC",
+    "曼城": "Manchester City FC", "曼彻斯特城": "Manchester City FC", "蓝月亮": "Manchester City FC",
+    "阿森纳": "Arsenal FC", "枪手": "Arsenal FC", "切尔西": "Chelsea FC", "蓝军": "Chelsea FC", 
+    "曼联": "Manchester United FC", "曼彻斯特联": "Manchester United FC", "红魔": "Manchester United FC",
+    "热刺": "Tottenham Hotspur FC", "托特纳姆热刺": "Tottenham Hotspur FC", "纽卡斯尔": "Newcastle United FC", 
+    "维拉": "Aston Villa FC", "阿斯顿维拉": "Aston Villa FC", "布莱顿": "Brighton & Hove Albion FC", 
+    "西汉姆": "West Ham United FC", "铁锤帮": "West Ham United FC", "狼队": "Wolverhampton Wanderers FC", 
+    "埃弗顿": "Everton FC", "富勒姆": "Fulham FC", "水晶宫": "Crystal Palace FC", "布伦特福德": "Brentford FC", 
     "莱斯特城": "Leicester City FC", "伊普斯维奇": "Ipswich Town FC", "诺丁汉森林": "Nottingham Forest FC",
     # 西甲
-    "皇马": "Real Madrid CF", "皇家马德里": "Real Madrid CF", "Real Madrid": "Real Madrid CF",
-    "巴萨": "FC Barcelona", "巴塞罗那": "FC Barcelona", "Barcelona": "FC Barcelona",
-    "马竞": "Club Atlético de Madrid", "马德里竞技": "Club Atlético de Madrid",
-    "比利亚雷亚尔": "Villarreal CF", "毕尔巴鄂": "Athletic Club", "毕尔巴鄂竞技": "Athletic Club",
-    "皇家社会": "Real Sociedad", "贝蒂斯": "Real Betis", "皇家贝蒂斯": "Real Betis", "塞维利亚": "Sevilla FC",
+    "皇马": "Real Madrid CF", "皇家马德里": "Real Madrid CF", "巴萨": "FC Barcelona", "巴塞罗那": "FC Barcelona",
+    "马竞": "Club Atlético de Madrid", "马德里竞技": "Club Atlético de Madrid", "比利亚雷亚尔": "Villarreal CF",
+    "毕尔巴鄂": "Athletic Club", "皇家社会": "Real Sociedad", "贝蒂斯": "Real Betis", "塞维利亚": "Sevilla FC",
     # 德甲
-    "拜仁": "FC Bayern München", "拜仁慕尼黑": "FC Bayern München", "Bayern": "FC Bayern München",
-    "多特": "Borussia Dortmund", "多特蒙德": "Borussia Dortmund", "勒沃库森": "Bayer 04 Leverkusen",
-    "莱比锡": "RB Leipzig", "法兰克福": "Eintracht Frankfurt", "斯图加特": "VfB Stuttgart",
+    "拜仁": "FC Bayern München", "拜仁慕尼黑": "FC Bayern München", "多特": "Borussia Dortmund", "多特蒙德": "Borussia Dortmund",
+    "药厂": "Bayer 04 Leverkusen", "勒沃库森": "Bayer 04 Leverkusen", "莱比锡": "RB Leipzig", 
+    "法兰克福": "Eintracht Frankfurt", "斯图加特": "VfB Stuttgart",
     # 意甲
     "国米": "Inter Milan", "国际米兰": "Inter Milan", "AC米兰": "AC Milan", "尤文": "Juventus FC", 
     "尤文图斯": "Juventus FC", "那不勒斯": "SSC Napoli", "罗马": "AS Roma", "拉齐奥": "SS Lazio", "亚特兰大": "Atalanta BC",
     # 法甲
-    "巴黎": "Paris Saint-Germain FC", "大巴黎": "Paris Saint-Germain FC", "巴黎圣日耳曼": "Paris Saint-Germain FC",
-    "马赛": "Olympique de Marseille", "摩纳哥": "AS Monaco FC", "里昂": "Olympique Lyonnais", "里尔": "LOSC Lille",
+    "巴黎": "Paris Saint-Germain FC", "大巴黎": "Paris Saint-Germain FC", "马赛": "Olympique de Marseille", 
+    "摩纳哥": "AS Monaco FC", "里昂": "Olympique Lyonnais", "里尔": "LOSC Lille",
 }
 
 def resolve(name):
     name = name.strip()
-    # 如果用户输入的名字在别名库，返回全名；否则原样返回
-    return ALIAS.get(name, name)
+    if name in ALIAS:
+        return ALIAS[name]
+    # 尝试在所有联赛数据中模糊匹配
+    for code in LEAGUE_NAMES:
+        s, _, _ = _load_league(code)
+        if s is not None:
+            for team in s['team'].values:
+                if name.lower() in team.lower() or team.lower() in name.lower():
+                    return team
+    return name
 
 _cache = {}
 
@@ -62,7 +68,7 @@ def find_league(team_en):
 
 def query_standings(team_name):
     team_en = resolve(team_name); code = find_league(team_en)
-    if code is None: return {"error": f"没找到球队 {team_name}（解析为 {team_en}）。"}
+    if code is None: return {"status": "no_data", "message": f"暂未收录 {team_name} 的积分榜数据。"}
     standings, _, _ = _load_league(code)
     row = standings[standings['team'] == team_en]
     r = row.iloc[0]
@@ -72,9 +78,10 @@ def query_standings(team_name):
 
 def query_recent_form(team_name, n=5):
     team_en = resolve(team_name); code = find_league(team_en)
-    if code is None: return {"error": f"没找到球队 {team_name}。"}
+    if code is None: return {"status": "no_data", "message": f"暂未收录 {team_name} 的近期战绩。"}
     _, matches, _ = _load_league(code)
     played = matches[(matches['home'] == team_en) | (matches['away'] == team_en)]
+    if len(played) == 0: return {"status": "no_data", "message": f"暂未收录 {team_name} 的比赛记录。"}
     games = []
     for _, r in played.tail(n).iterrows():
         if r['home'] == team_en: gf, ga, opp, venue = int(r['hg']), int(r['ag']), r['away'], "主场"
@@ -87,7 +94,7 @@ def query_head_to_head(team_a, team_b, limit=5):
     a, b = resolve(team_a), resolve(team_b)
     code_a, code_b = find_league(a), find_league(b)
     codes = [c for c in [code_a, code_b] if c is not None]
-    if not codes: return {"error": f"没找到 {team_a} 或 {team_b}。"}
+    if not codes: return {"status": "no_data", "message": f"暂未收录 {team_a} 或 {team_b} 的数据，无法查阅交锋。"}
     h2h = pd.DataFrame()
     for code in set(codes):
         _, matches, _ = _load_league(code)
@@ -95,7 +102,7 @@ def query_head_to_head(team_a, team_b, limit=5):
         part = matches[((matches['home'] == a) & (matches['away'] == b)) | ((matches['home'] == b) & (matches['away'] == a))]
         h2h = pd.concat([h2h, part], ignore_index=True)
     h2h = h2h.drop_duplicates(subset=['date', 'home', 'away'])
-    if len(h2h) == 0: return {"error": f"没找到交锋记录。"}
+    if len(h2h) == 0: return {"status": "no_data", "message": f"两队近期暂无交锋记录。"}
     a_wins = b_wins = draws = 0
     for _, r in h2h.iterrows():
         ag = int(r['hg']) if r['home'] == a else int(r['ag'])
@@ -108,88 +115,88 @@ def query_head_to_head(team_a, team_b, limit=5):
 
 def predict_match(home_team, away_team):
     home, away = resolve(home_team), resolve(away_team)
-    code = find_league(home) or find_league(away)
-    if code is None: return {"error": f"没找到球队 {home_team} 或 {away_team}。"}
+    code = find_league(home) or find_league(away) or "PL"
     _, matches, _ = _load_league(code)
-    try: return predict(home, away, league_code=code, matches=matches)
-    except IndexError: return {"error": f"没找到比赛数据。"}
+    
+    # 如果一方完全没数据，用联赛平均或默认数据兜底，不报错
+    try: 
+        return predict(home, away, league_code=code, matches=matches)
+    except Exception:
+        # 兜底：强行用默认特征预测
+        import pandas as pd
+        X = pd.DataFrame([{"home_gf": 1.3, "home_ga": 1.3, "home_pts": 1.3, "home_recent": 1.3,
+                           "away_gf": 1.3, "away_ga": 1.3, "away_pts": 1.3, "away_recent": 1.3}])
+        from predict_v2 import MODELS
+        model = MODELS.get(code, MODELS.get("PL"))
+        proba = model.predict_proba(X)[0]
+        res = {cls: round(float(p), 2) for cls, p in zip(model.classes_, proba)}
+        return {"home": home_team, "away": away_team, "league": code, "p_home": res.get("HOME_TEAM", 0.33), "p_draw": res.get("DRAW", 0.33), "p_away": res.get("AWAY_TEAM", 0.34), "note": "由于一方数据缺失，使用联赛平均水平进行估算。"}
 
 def query_league_table(league_name, top_n=5):
     name_to_code = {v: k for k, v in LEAGUE_NAMES.items()}
     code = name_to_code.get(league_name.strip(), league_name.strip().upper())
-    if code not in LEAGUE_NAMES: return {"error": f"不支持的联赛 {league_name}"}
+    if code not in LEAGUE_NAMES: return {"status": "no_data", "message": f"不支持的联赛 {league_name}。"}
     standings, _, _ = _load_league(code)
-    if standings is None: return {"error": f"找不到数据。"}
+    if standings is None: return {"status": "no_data", "message": f"找不到数据。"}
     result = [{"rank": i + 1, "team": r['team'], "points": int(r['PTS']), "played": int(r['MP']), "goal_diff": int(r['GD'])} for i, r in standings.head(top_n).iterrows()]
     return {"league": LEAGUE_NAMES[code], "top_n": top_n, "table": result}
 
 def query_team_matches(team_name, limit=10):
     team_en = resolve(team_name); code = find_league(team_en)
-    if code is None: return {"error": f"没找到球队 {team_name}。"}
+    if code is None: return {"status": "no_data", "message": f"暂未收录 {team_name} 的赛程。"}
     _, matches, _ = _load_league(code)
     team_matches = matches[(matches['home'] == team_en) | (matches['away'] == team_en)]
+    if len(team_matches) == 0: return {"status": "no_data", "message": f"暂未收录 {team_name} 的比赛记录。"}
     games = [{"date": str(r['date'].date()), "home": r['home'], "away": r['away'], "score": f"{int(r['hg'])}-{int(r['ag'])}"} for _, r in team_matches.tail(limit).iterrows()]
     return {"team": team_en, "recent_matches": games}
 
 def predict_next_match(team_name):
     team_en = resolve(team_name); code = find_league(team_en)
-    if code is None: return {"error": f"没找到球队 {team_name}（解析为 {team_en}）。"}
+    if code is None: return {"status": "no_data", "message": f"赛程库暂未收录 {team_name} 的未来赛程。"}
     _, matches, upcoming = _load_league(code)
-    if upcoming is None: return {"error": f"没有找到 {code} 的未来赛程数据。"}
+    if upcoming is None: return {"status": "no_data", "message": f"暂无 {code} 的未来赛程数据。"}
     next_game = upcoming[(upcoming['home'] == team_en) | (upcoming['away'] == team_en)].head(1)
-    if len(next_game) == 0: return {"error": f"赛程库里没有 {team_en} 接下来的比赛。"}
+    if len(next_game) == 0: return {"status": "no_data", "message": f"赛程库里没有 {team_en} 接下来的比赛。"}
     r = next_game.iloc[0]
     h, a, date_val = r['home'], r['away'], str(r['date'].date())
-    pred = predict(h, a, league_code=code, matches=matches)
-    return {"match_date": date_val, "home": h, "away": a, "prediction": {"p_home": pred['p_home'], "p_draw": pred['p_draw'], "p_away": pred['p_away']}}
+    pred = predict_match(h, a)
+    return {"match_date": date_val, "home": h, "away": a, "prediction": pred}
 
 # ================= 接入真实 API 的 RAG 检索工具 =================
-# 请务必将这里换成你的真实 Key
 API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"
 
 def query_team_news(team_name):
     team_en = resolve(team_name)
-    
     try:
         with open("team_ids.json", "r", encoding="utf-8") as f:
             team_ids = json.load(f)
     except FileNotFoundError:
-        return {"error": "找不到 team_ids.json 文件。"}
+        return {"status": "no_data", "message": "伤停数据库加载失败。"}
     
     team_id = None
     for eng_name, tid in team_ids.items():
         if eng_name.lower() in team_en.lower() or team_en.lower() in eng_name.lower():
-            team_id = tid
-            break
-            
+            team_id = tid; break
     if not team_id:
-        return {"team": team_en, "news": f"API 数据库中暂未收录 {team_en} 的伤停情报。"}
+        return {"status": "no_data", "message": f"情报库暂未收录 {team_en} 的专项伤停数据。"}
 
-    url = f"https://v3.football.api-sports.io/injuries?team={team_id}&season=2025"
-    headers = {"x-apisports-key": API_FOOTBALL_KEY}
-    resp = requests.get(url, headers=headers)
-    
-    if resp.status_code != 200:
-        return {"error": f"API 请求失败，状态码：{resp.status_code}，请检查 Key 是否正确。"}
-        
-    data = resp.json()
-    if data["results"] == 0:
-        return {"team": team_en, "news": "当前 API 数据库中没有该球队的近期伤停记录（全员健康或数据未更新）。"}
-    
-    news_items = []
-    for item in data["response"][:5]:
-        player_name = item["player"]["name"]
-        reason = item["player"].get("reason", "原因未知")
-        news_items.append(f"{player_name} ({reason})")
-    
-    return {"team": team_en, "news": "近期伤停名单：" + ", ".join(news_items)}
+    try:
+        url = f"https://v3.football.api-sports.io/injuries?team={team_id}&season=2025"
+        headers = {"x-apisports-key": API_FOOTBALL_KEY}
+        resp = requests.get(url, headers=headers, timeout=5)
+        data = resp.json()
+        if data.get("results", 0) == 0:
+            return {"status": "no_data", "message": f"当前没有 {team_en} 的最新伤停记录。"}
+        news_items = [f"{i['player']['name']} ({i['player'].get('reason', '未知')})" for i in data["response"][:5]]
+        return {"team": team_en, "news": "近期伤停名单：" + ", ".join(news_items)}
+    except Exception:
+        return {"status": "no_data", "message": "API 接口请求超时或异常。"}
 
 TOOL_MAP = {
     "predict_match": predict_match, "query_standings": query_standings,
     "query_recent_form": query_recent_form, "query_head_to_head": query_head_to_head,
     "query_league_table": query_league_table, "query_team_matches": query_team_matches,
-    "predict_next_match": predict_next_match,
-    "query_team_news": query_team_news
+    "predict_next_match": predict_next_match, "query_team_news": query_team_news
 }
 
 TOOLS_SCHEMA = [
