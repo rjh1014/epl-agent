@@ -8,27 +8,18 @@ LEAGUES = ["PL", "PD", "BL1", "SA", "FL1"]
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
 
 def build_features(matches):
-    """按时间顺序，用赛前滚动统计构造特征（包含整体平均和近5场状态）"""
     team_history = {}
 
     def get_pre_stats(team):
-        # 默认值：没数据时用 1.3 球、1.3 分兜底
         if team not in team_history or len(team_history[team]) == 0:
             return 1.3, 1.3, 1.3, 1.3
-        
         history = team_history[team]
         n = len(history)
-        
-        # 1. 赛季整体场均
         avg_gf = sum(h[0] for h in history) / n
         avg_ga = sum(h[1] for h in history) / n
         avg_pts = sum(h[2] for h in history) / n
-        
-        # 2. 最近5场场均（如果不足5场，就用现有场次）
         recent = history[-5:]
-        r_n = len(recent)
-        recent_pts = sum(h[2] for h in recent) / r_n
-        
+        recent_pts = sum(h[2] for h in recent) / len(recent)
         return avg_gf, avg_ga, avg_pts, recent_pts
 
     def update(team, gf, ga):
@@ -58,7 +49,6 @@ for code in LEAGUES:
     try:
         matches = pd.read_csv(path)
     except FileNotFoundError:
-        print(f"{LEAGUE_NAMES[code]}: 找不到 {path}，跳过")
         continue
 
     matches['date'] = pd.to_datetime(matches['date'])
@@ -72,22 +62,23 @@ for code in LEAGUES:
     X_train, X_test = X.iloc[:split], X.iloc[split:]
     y_train, y_test = y.iloc[:split], y.iloc[split:]
 
-    # 对比两个模型：逻辑回归 vs 随机森林
     lr_model = LogisticRegression(max_iter=1000)
     lr_model.fit(X_train, y_train)
     lr_acc = accuracy_score(y_test, lr_model.predict(X_test))
 
-    # 随机森林（100棵树，最大深度5，防止过拟合）
     rf_model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
     rf_model.fit(X_train, y_train)
     rf_acc = accuracy_score(y_test, rf_model.predict(X_test))
 
-    print(f"{LEAGUE_NAMES[code]}: 逻辑回归 {lr_acc:.3f} | 随机森林 {rf_acc:.3f}")
-
-    # 我们统一保存随机森林模型（它通常表现更好）
-    models[code] = rf_model
+    # 择优录取：哪个准确率高，就保存哪个模型
+    if lr_acc >= rf_acc:
+        print(f"{LEAGUE_NAMES[code]}: 逻辑回归 {lr_acc:.3f} | 随机森林 {rf_acc:.3f} -> 保存逻辑回归")
+        models[code] = lr_model
+    else:
+        print(f"{LEAGUE_NAMES[code]}: 逻辑回归 {lr_acc:.3f} | 随机森林 {rf_acc:.3f} -> 保存随机森林")
+        models[code] = rf_model
 
 with open("models_multi.pkl", "wb") as f:
     pickle.dump(models, f)
 
-print("\n全新升级版模型已保存到 models_multi.pkl")
+print("\n全明星模型组合已保存到 models_multi.pkl")
