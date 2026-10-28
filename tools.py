@@ -3,7 +3,7 @@ import json
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
+from qiuxiaoce import QiuXiaoCeClient
 from predict_v2 import predict
 
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
@@ -120,7 +120,6 @@ def query_head_to_head(team_a, team_b, limit=5):
 def predict_match(home_team, away_team):
     home, away = resolve(home_team), resolve(away_team)
     code = find_league(home) or find_league(away)
-    
     if not code:
         serie_a_teams = ["Inter Milan", "AC Milan", "Juventus FC", "SSC Napoli", "AS Roma", "SS Lazio", "Atalanta BC", "Venezia FC"]
         if home in serie_a_teams or away in serie_a_teams: code = "SA"
@@ -130,13 +129,11 @@ def predict_match(home_team, away_team):
     try: 
         return predict(home, away, league_code=code, matches=matches)
     except Exception:
-        # 数据缺失兜底
         X = pd.DataFrame([{"home_gf": 1.3, "home_ga": 1.3, "home_pts": 1.3, "home_recent": 1.3, "away_gf": 1.3, "away_ga": 1.3, "away_pts": 1.3, "away_recent": 1.3}])
         from predict_v2 import MODELS
         model = MODELS.get(code, MODELS.get("PL"))
         proba = model.predict_proba(X)[0]
         res = {cls: round(float(p), 2) for cls, p in zip(model.classes_, proba)}
-        # 加上强烈的警告标签
         return {"home": home, "away": away, "league": code, "p_home": res.get("HOME_TEAM", 0.33), "p_draw": res.get("DRAW", 0.33), "p_away": res.get("AWAY_TEAM", 0.34), "note": f"⚠️ 严重警告：{home} 或 {away} 缺乏历史数据，模型使用了 {LEAGUE_NAMES[code]} 的基准保底数据进行强行估算，该概率严重失真，不具备参考价值。"}
 
 def query_league_table(league_name, top_n=5):
@@ -169,45 +166,87 @@ def predict_next_match(team_name):
     pred = predict_match(h, a)
     return {"match_date": date_val, "home": h, "away": a, "prediction": pred}
 
-API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"  # ⚠️ 记得替换
+# ================= 接入球小策真实伤停数据 =================
+API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"  # 备用
+QIUXIAOCE_API_KEY = "qxz_v4xUbSpe5oOUK3yYVeieV6Cs"      # ⚠️ 替换成你刚复制的球小策Key
+
+qxc_client = QiuXiaoCeClient(api_key=QIUXIAOCE_API_KEY)
 
 def query_team_news(team_name):
+    """通过球小策获取结构化伤停情报（带智能解析与生成状态处理）"""
     team_en = resolve(team_name)
-    try:
-        with open("team_ids.json", "r", encoding="utf-8") as f:
-            team_ids = json.load(f)
-        team_id = next((tid for name, tid in team_ids.items() if name.lower() in team_en.lower()), None)
-        
-        if team_id:
-            url = f"https://v3.football.api-sports.io/injuries?team={team_id}&season=2025"
-            headers = {"x-apisports-key": API_FOOTBALL_KEY}
-            resp = requests.get(url, headers=headers, timeout=5)
-            data = resp.json()
-            if data.get("results", 0) > 0:
-                news_items = [f"{i['player']['name']} ({i['player'].get('reason', '未知')})" for i in data["response"][:5]]
-                return {"team": team_en, "source": "API-Football", "news": "近期伤停名单：" + ", ".join(news_items)}
-    except Exception:
-        pass
-
     team_cn = STANDARD_CN.get(team_en, team_name)
-    # ⚠️ 优化搜索词：加上"足球 伤停"限定，过滤掉动漫或无关信息
-    query = f"{team_cn} 足球 伤停 停赛 新闻"
     
+    # 1. 搜索球队
     try:
-        results = DDGS().text(query, max_results=3)
-        if not results:
-            return {"status": "no_data", "message": f"未能搜索到 {team_cn} 的最新新闻。"}
+        teams = qxc_client.search_teams(team_cn)
+        if not teams:
+            return {"status": "no_data", "message": f"球小策未收录 {team_cn}。"}
+        qxc_team_id = teams[0]["team_id"]
+    except Exception as e:
+        return {"status": "no_data", "message": f"球队搜索失败: {str(e)}"}
+    
+    # 2. 拉取最新赛季赛程，优先找未开始的比赛
+    try:
+        fixtures = qxc_client.get_fixtures(team_id=qxc_team_id, season=2026)
+        if not fixtures:
+            # 如果 2026 没有，回退到 2024 拿最新一场
+            fixtures = qxc_client.get_fixtures(team_id=qxc_team_id, season=2024)
+            
+        if not fixtures:
+            return {"status": "no_data", "message": f"未找到 {team_cn} 的赛程数据。"}
+            
+        # 优先找状态为 NS (未开始) 的比赛，找不到就拿最后一场
+        upcoming = [f for f in fixtures if f.get("status") in ("NS", "TBD", "未开始")]
+        target_match = upcoming[0] if upcoming else fixtures[-1]
+        fixture_id = target_match["fixture_id"]
+    except Exception as e:
+        return {"status": "no_data", "message": f"赛程查询失败: {str(e)}"}
+    
+    # 3. 拉取 Match Pack
+    try:
+        pack_data = qxc_client.get_match_pack(fixture_id=fixture_id)
         
-        news_text = " | ".join([f"【{r['title']}】{r['body']}" for r in results])
+        # 检查是否正在生成中
+        generation = pack_data.get("meta", {}).get("generation", {})
+        if generation.get("status") == "generating":
+            return {
+                "team": team_en, 
+                "source": "球小策", 
+                "news": "球小策系统正在为您实时生成该场比赛的全景数据包（需等待约60秒）。当前暂无具体伤停名单，建议稍后重试。",
+                "note": "数据生成中，无具体伤停。"
+            }
+            
+        pack = pack_data.get("pack", {})
+        if not pack:
+            return {"status": "no_data", "message": "球小策未返回有效比赛数据。"}
+            
+        # 尝试从 pack 中提取伤停（不同接口可能字段名不同）
+        injuries = pack.get("injuries") or pack.get("missing_players") or pack.get("lineups_injuries")
+        
+        if not injuries:
+            return {"team": team_en, "source": "球小策", "news": "根据球小策数据，该场比赛暂无明确伤停记录。"}
+            
+        # 如果提取到了伤停列表，进行拼接
+        if isinstance(injuries, list):
+            news_text = " | ".join([f"{i.get('player_name', '未知球员')} ({i.get('reason', '原因未知')})" for i in injuries[:8]])
+        elif isinstance(injuries, dict):
+            home_inj = "、".join([str(x) for x in injuries.get("home", [])])
+            away_inj = "、".join([str(x) for x in injuries.get("away", [])])
+            news_text = f"主队伤停：{home_inj if home_inj else '无'}；客队伤停：{away_inj if away_inj else '无'}"
+        else:
+            news_text = str(injuries)
+            
         return {
-            "team": team_en, 
-            "source": "DuckDuckGo 实时搜索",
+            "team": team_en,
+            "source": "球小策 (结构化数据)",
             "news": news_text,
-            "note": "此为搜索结果原文，请 Analyst 自行提炼。如果内容与足球无关（如动漫、其他赛事），请直接判定为无效信息并拒绝使用。"
+            "note": "此为球小策返回的结构化伤停情报。"
         }
     except Exception as e:
-        return {"status": "no_data", "message": f"新闻搜索失败: {str(e)}"}
+        return {"status": "no_data", "message": f"Match Pack 查询异常: {str(e)}"}
 
+# ================= 竞彩赔率 =================
 def query_match_odds(home_team, away_team):
     home_cn = STANDARD_CN.get(resolve(home_team), home_team)
     away_cn = STANDARD_CN.get(resolve(away_team), away_team)
@@ -267,6 +306,6 @@ TOOLS_SCHEMA = [
     {"type": "function", "function": {"name": "query_league_table", "description": "查询联赛前N名的积分榜。", "parameters": {"type": "object", "properties": {"league_name": {"type": "string"}, "top_n": {"type": "integer"}}, "required": ["league_name"]}}},
     {"type": "function", "function": {"name": "query_team_matches", "description": "查询某队最近的赛程比分。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "predict_next_match", "description": "预测某支球队下一场真实比赛的胜平负概率。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
-    {"type": "function", "function": {"name": "query_team_news", "description": "获取某支球队的伤停情报。优先查 API，若无则返回实时新闻搜索原文供提炼。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
-    {"type": "function", "function": {"name": "query_match_odds", "description": "查询中国竞彩网官方赔率（支持代理）。", "parameters": {"type": "object", "properties": {"home_team": {"type": "string"}, "away_team": {"type": "string"}}, "required": ["home_team", "away_team"]}}}
+    {"type": "function", "function": {"name": "query_team_news", "description": "获取某支球队的伤停情报。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
+    {"type": "function", "function": {"name": "query_match_odds", "description": "查询中国竞彩网官方赔率。", "parameters": {"type": "object", "properties": {"home_team": {"type": "string"}, "away_team": {"type": "string"}}, "required": ["home_team", "away_team"]}}}
 ]
