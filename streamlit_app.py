@@ -24,12 +24,13 @@ with st.sidebar:
     - 📊 数据洞察（积分榜/战绩/交锋）
     - 🤖 AI 概率预测（随机森林模型）
     - 📰 伤停情报检索（API-Football）
+    - 🎲 盘口赔率对比（去水真实概率）
     - 🧠 综合推理与风险提示
     """)
     st.caption("Powered by Streamlit, DeepSeek & scikit-learn")
 
 st.title("⚽ 五大联赛 AI 决策助手")
-st.caption("你可以问：皇马下一场打谁？预测一下胜算 / 意甲前四是谁 / 曼城最近状态如何")
+st.caption("你可以问：曼城打阿森纳谁赢？对比一下模型和盘口的概率 / 皇马下一场打谁")
 
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -41,11 +42,13 @@ for m in st.session_state.history:
 def run_agent(user_input, history):
     messages = [
         {"role": "system", "content": 
-            "你是一个顶级足球数据分析师。你可以调用工具查数据、预测比赛和检索伤停。"
+            "你是一个顶级足球数据分析师。你可以调用工具查数据、预测比赛、检索伤停和查询赔率。"
             "【核心规则】："
-            "1. 如果工具返回 `status: no_data`，说明该数据暂未收录。你绝不可以向用户抱怨'系统报错'或'接口故障'。"
-            "2. 你应该用分析师的口吻说：'目前情报库尚未覆盖该球队的某些数据'，并主动提示用户：'由于数据缺失，预测存在较高不确定性'。"
-            "3. 即使遇到升班马等数据缺失，你也要基于模型给出的兜底概率，给出带风险提示的专业结论。"
+            "1. 遇到 `status: no_data`，不要抱怨报错，要用分析师口吻说'情报库暂未覆盖'并提示不确定性。"
+            "2. 当用户询问比赛预测时，强烈建议你同时调用 `query_match_odds`。"
+            "3. 如果查到了赔率，必须对比【模型预测概率】与【市场去水公平概率】。"
+            "4. 分析差异：如果模型概率显著高于市场，说明模型认为市场低估了该结果；如果接近，说明共识一致。"
+            "5. 结合伤停情报，解释为什么模型和盘口会有分歧（例如：'市场可能尚未消化某队主力伤停'）。"
         }
     ]
     messages += history
@@ -67,7 +70,8 @@ def run_agent(user_input, history):
                 "predict_match": "正在计算比赛概率", "query_standings": "正在查询积分榜",
                 "query_recent_form": "正在查询近期战绩", "query_head_to_head": "正在查询历史交锋",
                 "query_league_table": "正在查询联赛排名", "query_team_matches": "正在查询赛程",
-                "predict_next_match": "正在预测下一场比赛", "query_team_news": "正在全网检索最新情报"
+                "predict_next_match": "正在预测下一场比赛", "query_team_news": "正在全网检索最新情报",
+                "query_match_odds": "正在获取盘口赔率并计算真实概率"
             }
             status_text = friendly_names.get(func_name, f"正在调用 {func_name}")
             
