@@ -5,11 +5,12 @@ import pandas as pd
 from qiuxiaoce import QiuXiaoCeClient
 from predict_v2 import predict
 
-# ================= API 密钥配置 =================
-QIUXIAOCE_API_KEY = os.getenv("QIUXIAOCE_API_KEY", "qxz_v4xUbSpe5oOUK3yYVeieV6Cs")
-PINNWIRE_API_KEY = os.getenv("PINNWIRE_API_KEY", "demo")  # pinnwire 公共演示 Key
+# ================= API 密钥配置（注意：字符串必须带引号） =================
+# 优先从云端 Secrets 读取，读不到则使用备用 Key
+QIUXIAOCE_API_KEY = os.getenv("QIUXIAOCE_API_KEY", "a8b2fcc1bddf8cc9b3ddb234170da171")
+PINNWIRE_API_KEY = os.getenv("PINNWIRE_API_KEY", "demo")
 
-qxc_client = QiuXiaoCeClient(api_key=a8b2fcc1bddf8cc9b3ddb234170da171)
+qxc_client = QiuXiaoCeClient(api_key=QIUXIAOCE_API_KEY)
 
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
 
@@ -220,9 +221,8 @@ def query_match_odds(home_team, away_team):
     home_en = resolve(home_team)
     away_en = resolve(away_team)
     
-    # ---------- 尝试方案一：InferSports（免 Key，支持亚洲盘口） ----------
+    # ---------- 尝试方案一：InferSports ----------
     try:
-        # 1. 使用 find_match 解析比赛名称获取 event_id
         find_url = "https://api.infersports.dev/v1/mcp/find_match"
         find_payload = {"query": f"{home_en} {away_en}"}
         resp = requests.post(find_url, json=find_payload, timeout=10)
@@ -232,14 +232,11 @@ def query_match_odds(home_team, away_team):
             event_id = find_data.get("event_id")
             
             if event_id:
-                # 2. 获取该场比赛的全部赔率
                 odds_url = f"https://api.infersports.dev/v1/events/{event_id}/odds?format=decimal"
                 resp_odds = requests.get(odds_url, timeout=10)
                 
                 if resp_odds.status_code == 200:
                     odds_data = resp_odds.json()
-                    # 解析 1x2 市场（主胜、平局、客胜）
-                    # 根据 InferSports 实际返回结构，提取去水后的公平概率
                     fair_probs = odds_data.get("fair_probabilities", {})
                     if fair_probs and all(k in fair_probs for k in ["home", "draw", "away"]):
                         return {
@@ -253,18 +250,16 @@ def query_match_odds(home_team, away_team):
                             "note": "数据来自 InferSports 实时市场，已去水。"
                         }
     except Exception:
-        pass  # InferSports 失败时静默切换到 pinnwire
+        pass
 
-    # ---------- 尝试方案二：pinnwire（使用公共 demo Key） ----------
+    # ---------- 尝试方案二：pinnwire ----------
     try:
-        # 1. 获取足球（sport_id=1）的赛前赛程
         fixture_url = f"https://pinnwire.com/api/v1/prematch/fixtures?sport_id=1&key={PINNWIRE_API_KEY}"
         resp_fix = requests.get(fixture_url, timeout=10)
         
         if resp_fix.status_code == 200:
             fixtures = resp_fix.json().get("fixtures", [])
             
-            # 2. 模糊匹配主客队
             for fx in fixtures:
                 home_name = fx.get("home_team", "").lower()
                 away_name = fx.get("away_team", "").lower()
@@ -277,13 +272,11 @@ def query_match_odds(home_team, away_team):
                     
                     event_id = fx.get("event_id")
                     if event_id:
-                        # 3. 获取该场比赛的完整赔率
                         odds_url = f"https://pinnwire.com/api/v1/prematch/lines/{event_id}?key={PINNWIRE_API_KEY}"
                         resp_odds = requests.get(odds_url, timeout=10)
                         
                         if resp_odds.status_code == 200:
                             odds_data = resp_odds.json()
-                            # 解析 pinnwire 返回的去水公平概率
                             fair_probs = odds_data.get("no_vig_probabilities", {})
                             if fair_probs and all(k in fair_probs for k in ["home", "draw", "away"]):
                                 return {
@@ -297,9 +290,8 @@ def query_match_odds(home_team, away_team):
                                     "note": "数据来自 pinnwire 实时 Pinnacle 市场，已去水。"
                                 }
     except Exception:
-        pass  # pinnwire 也失败
+        pass
 
-    # ---------- 方案三：全部失败时，返回友好的降级提示 ----------
     return {"status": "no_data", "message": "当前未能从 InferSports 或 pinnwire 获取到该场比赛的实时赔率，请稍后重试。"}
 
 TOOL_MAP = {
