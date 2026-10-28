@@ -129,7 +129,7 @@ def predict_next_match(team_name):
     return {"match_date": date_val, "home": h, "away": a, "prediction": {"p_home": pred['p_home'], "p_draw": pred['p_draw'], "p_away": pred['p_away']}}
 
 # ================= 接入真实 API 的 RAG 检索工具 =================
-API_FOOTBALL_KEY = "你的API-Football-Key"  # 换成你自己的
+API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"  # 换成你自己的
 
 def query_team_news(team_name):
     """从 API-Football 检索该球队当前的伤停/缺阵球员情报"""
