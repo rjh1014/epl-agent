@@ -36,7 +36,7 @@ STANDARD_CN = {
     "Paris Saint-Germain FC": "巴黎", "Olympique de Marseille": "马赛", "AS Monaco FC": "摩纳哥", "Olympique Lyonnais": "里昂", "LOSC Lille": "里尔"
 }
 
-PROXY_URL = None  # 如果部署到海外云端，可在此填入国内代理
+PROXY_URL = None
 
 def resolve(name):
     name = name.strip()
@@ -63,13 +63,10 @@ def _load_league(code):
     return _cache[code]
 
 def find_league(team_en):
-    # 1. 优先在积分榜找
     for code in LEAGUE_NAMES:
         s, _, _ = _load_league(code)
         if s is not None and team_en in s['team'].values:
             return code
-    # 2. 如果在积分榜找不到（如升班马），则通过 ALIAS 映射表反查（这里简化处理，靠特征识别）
-    # 实际业务中，最好维护一个完整的五大联赛球队字典。
     return None
 
 def query_standings(team_name):
@@ -122,26 +119,25 @@ def query_head_to_head(team_a, team_b, limit=5):
 
 def predict_match(home_team, away_team):
     home, away = resolve(home_team), resolve(away_team)
-    # 修复 Bug：不要盲目使用 "PL" 兜底。如果不知道是哪个联赛，尝试所有联赛模型
     code = find_league(home) or find_league(away)
     
-    # 如果两队都没在积分榜找到，尝试通过中文名猜测联赛（这里为了演示，简单映射一下意甲球队）
     if not code:
         serie_a_teams = ["Inter Milan", "AC Milan", "Juventus FC", "SSC Napoli", "AS Roma", "SS Lazio", "Atalanta BC", "Venezia FC"]
         if home in serie_a_teams or away in serie_a_teams: code = "SA"
-        else: code = "PL" # 最后的兜底
+        else: code = "PL"
 
     _, matches, _ = _load_league(code)
     try: 
         return predict(home, away, league_code=code, matches=matches)
     except Exception:
-        # 数据缺失时，使用该联赛的平均水平兜底
+        # 数据缺失兜底
         X = pd.DataFrame([{"home_gf": 1.3, "home_ga": 1.3, "home_pts": 1.3, "home_recent": 1.3, "away_gf": 1.3, "away_ga": 1.3, "away_pts": 1.3, "away_recent": 1.3}])
         from predict_v2 import MODELS
         model = MODELS.get(code, MODELS.get("PL"))
         proba = model.predict_proba(X)[0]
         res = {cls: round(float(p), 2) for cls, p in zip(model.classes_, proba)}
-        return {"home": home, "away": away, "league": code, "p_home": res.get("HOME_TEAM", 0.33), "p_draw": res.get("DRAW", 0.33), "p_away": res.get("AWAY_TEAM", 0.34), "note": f"⚠️ {home} 或 {away} 缺乏历史数据，模型使用 {LEAGUE_NAMES[code]} 的基准水平进行估算，置信度较低。"}
+        # 加上强烈的警告标签
+        return {"home": home, "away": away, "league": code, "p_home": res.get("HOME_TEAM", 0.33), "p_draw": res.get("DRAW", 0.33), "p_away": res.get("AWAY_TEAM", 0.34), "note": f"⚠️ 严重警告：{home} 或 {away} 缺乏历史数据，模型使用了 {LEAGUE_NAMES[code]} 的基准保底数据进行强行估算，该概率严重失真，不具备参考价值。"}
 
 def query_league_table(league_name, top_n=5):
     name_to_code = {v: k for k, v in LEAGUE_NAMES.items()}
@@ -173,14 +169,10 @@ def predict_next_match(team_name):
     pred = predict_match(h, a)
     return {"match_date": date_val, "home": h, "away": a, "prediction": pred}
 
-# ================= 真实伤停 API 与 新闻 RAG =================
 API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"  # ⚠️ 记得替换
 
 def query_team_news(team_name):
-    """优先查 API-Football；若无数据，则利用 DuckDuckGo 实时搜索真实新闻"""
     team_en = resolve(team_name)
-    
-    # 1. 尝试 API-Football
     try:
         with open("team_ids.json", "r", encoding="utf-8") as f:
             team_ids = json.load(f)
@@ -195,29 +187,27 @@ def query_team_news(team_name):
                 news_items = [f"{i['player']['name']} ({i['player'].get('reason', '未知')})" for i in data["response"][:5]]
                 return {"team": team_en, "source": "API-Football", "news": "近期伤停名单：" + ", ".join(news_items)}
     except Exception:
-        pass  # API 失败，静默降级
+        pass
 
-    # 2. 真实 RAG：使用 DuckDuckGo 实时搜索
     team_cn = STANDARD_CN.get(team_en, team_name)
-    query = f"{team_cn} 伤停 停赛 预测"
+    # ⚠️ 优化搜索词：加上"足球 伤停"限定，过滤掉动漫或无关信息
+    query = f"{team_cn} 足球 伤停 停赛 新闻"
     
     try:
         results = DDGS().text(query, max_results=3)
         if not results:
             return {"status": "no_data", "message": f"未能搜索到 {team_cn} 的最新新闻。"}
         
-        # 拼接搜索到的新闻摘要
         news_text = " | ".join([f"【{r['title']}】{r['body']}" for r in results])
         return {
             "team": team_en, 
             "source": "DuckDuckGo 实时搜索",
             "news": news_text,
-            "note": "此为搜索结果原文，请 Analyst 自行提炼其中的伤停与停赛信息。"
+            "note": "此为搜索结果原文，请 Analyst 自行提炼。如果内容与足球无关（如动漫、其他赛事），请直接判定为无效信息并拒绝使用。"
         }
     except Exception as e:
         return {"status": "no_data", "message": f"新闻搜索失败: {str(e)}"}
 
-# ================= 竞彩赔率 =================
 def query_match_odds(home_team, away_team):
     home_cn = STANDARD_CN.get(resolve(home_team), home_team)
     away_cn = STANDARD_CN.get(resolve(away_team), away_team)
