@@ -2,7 +2,6 @@ import os
 import json
 import requests
 import pandas as pd
-from datetime import date
 from predict_v2 import predict
 
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
@@ -129,20 +128,19 @@ def predict_next_match(team_name):
     return {"match_date": date_val, "home": h, "away": a, "prediction": {"p_home": pred['p_home'], "p_draw": pred['p_draw'], "p_away": pred['p_away']}}
 
 # ================= 接入真实 API 的 RAG 检索工具 =================
-API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"  # 换成你自己的
+API_FOOTBALL_KEY ="a8b2fcc1bddf8cc9b3ddb234170da171"  # 记得换成你的真实Key
 
 def query_team_news(team_name):
-    """从 API-Football 检索该球队当前的伤停/缺阵球员情报"""
     team_en = resolve(team_name)
     
-    # 1. 读取本地存的 team_ids.json
+    # 读取本地存的 team_ids.json
     try:
         with open("team_ids.json", "r", encoding="utf-8") as f:
             team_ids = json.load(f)
     except FileNotFoundError:
-        return {"error": "找不到 team_ids.json 文件，请先运行 fetch_team_ids.py"}
+        return {"error": "找不到 team_ids.json 文件，请先确保该文件在项目根目录。"}
     
-    # 2. 找对应的英文名去查 ID
+    # 找对应的英文名去查 ID
     team_id = None
     for eng_name, tid in team_ids.items():
         if eng_name.lower() in team_en.lower() or team_en.lower() in eng_name.lower():
@@ -152,7 +150,7 @@ def query_team_news(team_name):
     if not team_id:
         return {"team": team_en, "news": f"API 数据库中暂未收录 {team_en} 的伤停情报。"}
 
-    # 3. 请求伤停 API
+    # 请求伤停 API
     url = f"https://v3.football.api-sports.io/injuries?team={team_id}&season=2025"
     headers = {"x-apisports-key": API_FOOTBALL_KEY}
     resp = requests.get(url, headers=headers)
@@ -165,7 +163,6 @@ def query_team_news(team_name):
         return {"team": team_en, "news": "当前 API 数据库中没有该球队的近期伤停记录（全员健康或数据未更新）。"}
     
     news_items = []
-    # 只取最近 5 条伤停记录，防止信息过载
     for item in data["response"][:5]:
         player_name = item["player"]["name"]
         reason = item["player"].get("reason", "原因未知")
