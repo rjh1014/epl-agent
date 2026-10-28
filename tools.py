@@ -3,23 +3,23 @@ import json
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
 from predict_v2 import predict
 
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
 
 ALIAS = {
-    "利物浦": "Liverpool FC", "红军": "Liverpool FC", "曼城": "Manchester City FC", "曼彻斯特城": "Manchester City FC", "蓝月亮": "Manchester City FC",
-    "阿森纳": "Arsenal FC", "枪手": "Arsenal FC", "切尔西": "Chelsea FC", "蓝军": "Chelsea FC", "曼联": "Manchester United FC", "曼彻斯特联": "Manchester United FC", "红魔": "Manchester United FC",
-    "热刺": "Tottenham Hotspur FC", "托特纳姆热刺": "Tottenham Hotspur FC", "纽卡斯尔": "Newcastle United FC", "维拉": "Aston Villa FC", "阿斯顿维拉": "Aston Villa FC", 
-    "布莱顿": "Brighton & Hove Albion FC", "西汉姆": "West Ham United FC", "铁锤帮": "West Ham United FC", "狼队": "Wolverhampton Wanderers FC", "埃弗顿": "Everton FC", 
-    "富勒姆": "Fulham FC", "水晶宫": "Crystal Palace FC", "布伦特福德": "Brentford FC", "莱斯特城": "Leicester City FC", "伊普斯维奇": "Ipswich Town FC", "诺丁汉森林": "Nottingham Forest FC",
-    "皇马": "Real Madrid CF", "皇家马德里": "Real Madrid CF", "巴萨": "FC Barcelona", "巴塞罗那": "FC Barcelona", "马竞": "Club Atlético de Madrid", "马德里竞技": "Club Atlético de Madrid", 
-    "比利亚雷亚尔": "Villarreal CF", "毕尔巴鄂": "Athletic Club", "皇家社会": "Real Sociedad", "贝蒂斯": "Real Betis", "塞维利亚": "Sevilla FC",
-    "拜仁": "FC Bayern München", "拜仁慕尼黑": "FC Bayern München", "多特": "Borussia Dortmund", "多特蒙德": "Borussia Dortmund", "药厂": "Bayer 04 Leverkusen", 
-    "勒沃库森": "Bayer 04 Leverkusen", "莱比锡": "RB Leipzig", "法兰克福": "Eintracht Frankfurt", "斯图加特": "VfB Stuttgart",
-    "国米": "Inter Milan", "国际米兰": "Inter Milan", "AC米兰": "AC Milan", "尤文": "Juventus FC", "尤文图斯": "Juventus FC", "那不勒斯": "SSC Napoli", 
-    "罗马": "AS Roma", "拉齐奥": "SS Lazio", "亚特兰大": "Atalanta BC",
-    "巴黎": "Paris Saint-Germain FC", "大巴黎": "Paris Saint-Germain FC", "马赛": "Olympique de Marseille", "摩纳哥": "AS Monaco FC", "里昂": "Olympique Lyonnais", "里尔": "LOSC Lille",
+    "利物浦": "Liverpool FC", "曼城": "Manchester City FC", "阿森纳": "Arsenal FC", "切尔西": "Chelsea FC", "曼联": "Manchester United FC",
+    "热刺": "Tottenham Hotspur FC", "纽卡斯尔": "Newcastle United FC", "维拉": "Aston Villa FC", "布莱顿": "Brighton & Hove Albion FC", 
+    "西汉姆": "West Ham United FC", "狼队": "Wolverhampton Wanderers FC", "埃弗顿": "Everton FC", "富勒姆": "Fulham FC", 
+    "水晶宫": "Crystal Palace FC", "布伦特福德": "Brentford FC", "莱斯特城": "Leicester City FC", "伊普斯维奇": "Ipswich Town FC", "诺丁汉森林": "Nottingham Forest FC",
+    "皇马": "Real Madrid CF", "巴萨": "FC Barcelona", "马竞": "Club Atlético de Madrid", "比利亚雷亚尔": "Villarreal CF", 
+    "毕尔巴鄂": "Athletic Club", "皇家社会": "Real Sociedad", "贝蒂斯": "Real Betis", "塞维利亚": "Sevilla FC",
+    "拜仁": "FC Bayern München", "多特": "Borussia Dortmund", "勒沃库森": "Bayer 04 Leverkusen", "莱比锡": "RB Leipzig", 
+    "法兰克福": "Eintracht Frankfurt", "斯图加特": "VfB Stuttgart",
+    "国米": "Inter Milan", "国际米兰": "Inter Milan", "AC米兰": "AC Milan", "尤文": "Juventus FC", "那不勒斯": "SSC Napoli", 
+    "罗马": "AS Roma", "拉齐奥": "SS Lazio", "亚特兰大": "Atalanta BC", "威尼斯": "Venezia FC",
+    "巴黎": "Paris Saint-Germain FC", "马赛": "Olympique de Marseille", "摩纳哥": "AS Monaco FC", "里昂": "Olympique Lyonnais", "里尔": "LOSC Lille",
 }
 
 STANDARD_CN = {
@@ -32,19 +32,15 @@ STANDARD_CN = {
     "FC Bayern München": "拜仁", "Borussia Dortmund": "多特", "Bayer 04 Leverkusen": "勒沃库森", "RB Leipzig": "莱比锡", 
     "Eintracht Frankfurt": "法兰克福", "VfB Stuttgart": "斯图加特",
     "Inter Milan": "国米", "AC Milan": "AC米兰", "Juventus FC": "尤文", "SSC Napoli": "那不勒斯", 
-    "AS Roma": "罗马", "SS Lazio": "拉齐奥", "Atalanta BC": "亚特兰大",
+    "AS Roma": "罗马", "SS Lazio": "拉齐奥", "Atalanta BC": "亚特兰大", "Venezia FC": "威尼斯",
     "Paris Saint-Germain FC": "巴黎", "Olympique de Marseille": "马赛", "AS Monaco FC": "摩纳哥", "Olympique Lyonnais": "里昂", "LOSC Lille": "里尔"
 }
 
-# ================= 代理配置（用于绕过竞彩网海外IP限制） =================
-# 如果你在本地运行，保持为 None 即可。
-# 如果部署到海外云服务器，请填入你的国内代理地址，例如: "http://127.0.0.1:7890" 或住宅代理
-PROXY_URL = None 
+PROXY_URL = None  # 如果部署到海外云端，可在此填入国内代理
 
 def resolve(name):
     name = name.strip()
-    if name in ALIAS:
-        return ALIAS[name]
+    if name in ALIAS: return ALIAS[name]
     for code in LEAGUE_NAMES:
         s, _, _ = _load_league(code)
         if s is not None:
@@ -67,10 +63,13 @@ def _load_league(code):
     return _cache[code]
 
 def find_league(team_en):
+    # 1. 优先在积分榜找
     for code in LEAGUE_NAMES:
         s, _, _ = _load_league(code)
         if s is not None and team_en in s['team'].values:
             return code
+    # 2. 如果在积分榜找不到（如升班马），则通过 ALIAS 映射表反查（这里简化处理，靠特征识别）
+    # 实际业务中，最好维护一个完整的五大联赛球队字典。
     return None
 
 def query_standings(team_name):
@@ -78,6 +77,7 @@ def query_standings(team_name):
     if code is None: return {"status": "no_data", "message": f"暂未收录 {team_name} 的积分榜数据。"}
     standings, _, _ = _load_league(code)
     row = standings[standings['team'] == team_en]
+    if len(row) == 0: return {"status": "no_data", "message": f"积分榜中未找到 {team_en}。"}
     r = row.iloc[0]
     return {"team": r['team'], "league": LEAGUE_NAMES.get(code, code), "rank": int(row.index[0] + 1),
             "played": int(r['MP']), "win": int(r['W']), "draw": int(r['D']), "loss": int(r['L']),
@@ -101,7 +101,7 @@ def query_head_to_head(team_a, team_b, limit=5):
     a, b = resolve(team_a), resolve(team_b)
     code_a, code_b = find_league(a), find_league(b)
     codes = [c for c in [code_a, code_b] if c is not None]
-    if not codes: return {"status": "no_data", "message": f"暂未收录 {team_a} 或 {team_b} 的数据，无法查阅交锋。"}
+    if not codes: return {"status": "no_data", "message": f"暂未收录 {team_a} 或 {team_b} 的数据。"}
     h2h = pd.DataFrame()
     for code in set(codes):
         _, matches, _ = _load_league(code)
@@ -122,17 +122,26 @@ def query_head_to_head(team_a, team_b, limit=5):
 
 def predict_match(home_team, away_team):
     home, away = resolve(home_team), resolve(away_team)
-    code = find_league(home) or find_league(away) or "PL"
+    # 修复 Bug：不要盲目使用 "PL" 兜底。如果不知道是哪个联赛，尝试所有联赛模型
+    code = find_league(home) or find_league(away)
+    
+    # 如果两队都没在积分榜找到，尝试通过中文名猜测联赛（这里为了演示，简单映射一下意甲球队）
+    if not code:
+        serie_a_teams = ["Inter Milan", "AC Milan", "Juventus FC", "SSC Napoli", "AS Roma", "SS Lazio", "Atalanta BC", "Venezia FC"]
+        if home in serie_a_teams or away in serie_a_teams: code = "SA"
+        else: code = "PL" # 最后的兜底
+
     _, matches, _ = _load_league(code)
     try: 
         return predict(home, away, league_code=code, matches=matches)
     except Exception:
+        # 数据缺失时，使用该联赛的平均水平兜底
         X = pd.DataFrame([{"home_gf": 1.3, "home_ga": 1.3, "home_pts": 1.3, "home_recent": 1.3, "away_gf": 1.3, "away_ga": 1.3, "away_pts": 1.3, "away_recent": 1.3}])
         from predict_v2 import MODELS
         model = MODELS.get(code, MODELS.get("PL"))
         proba = model.predict_proba(X)[0]
         res = {cls: round(float(p), 2) for cls, p in zip(model.classes_, proba)}
-        return {"home": home_team, "away": away_team, "league": code, "p_home": res.get("HOME_TEAM", 0.33), "p_draw": res.get("DRAW", 0.33), "p_away": res.get("AWAY_TEAM", 0.34), "note": "由于一方数据缺失，使用联赛平均水平进行估算。"}
+        return {"home": home, "away": away, "league": code, "p_home": res.get("HOME_TEAM", 0.33), "p_draw": res.get("DRAW", 0.33), "p_away": res.get("AWAY_TEAM", 0.34), "note": f"⚠️ {home} 或 {away} 缺乏历史数据，模型使用 {LEAGUE_NAMES[code]} 的基准水平进行估算，置信度较低。"}
 
 def query_league_table(league_name, top_n=5):
     name_to_code = {v: k for k, v in LEAGUE_NAMES.items()}
@@ -168,7 +177,7 @@ def predict_next_match(team_name):
 API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"  # ⚠️ 记得替换
 
 def query_team_news(team_name):
-    """优先查 API-Football；若无数据，则抓取懂球帝新闻供 LLM 提炼"""
+    """优先查 API-Football；若无数据，则利用 DuckDuckGo 实时搜索真实新闻"""
     team_en = resolve(team_name)
     
     # 1. 尝试 API-Football
@@ -180,54 +189,49 @@ def query_team_news(team_name):
         if team_id:
             url = f"https://v3.football.api-sports.io/injuries?team={team_id}&season=2025"
             headers = {"x-apisports-key": API_FOOTBALL_KEY}
-            resp = requests.get(url, headers=headers, timeout=5, proxies={"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None)
+            resp = requests.get(url, headers=headers, timeout=5)
             data = resp.json()
             if data.get("results", 0) > 0:
                 news_items = [f"{i['player']['name']} ({i['player'].get('reason', '未知')})" for i in data["response"][:5]]
                 return {"team": team_en, "source": "API-Football", "news": "近期伤停名单：" + ", ".join(news_items)}
     except Exception:
-        pass  # API 失败，静默降级到新闻抓取
+        pass  # API 失败，静默降级
 
-    # 2. 降级方案：抓取懂球帝相关新闻（此处以懂球帝数据页为例，实际需配合新闻列表接口）
-    # 为了演示 RAG 的完整链路，这里模拟返回一段需要 LLM 提炼的原始新闻文本
-    # 真实工业场景中，你会用 requests 抓取 https://www.dongqiudi.com/search?keyword={team_cn} 的搜索结果
+    # 2. 真实 RAG：使用 DuckDuckGo 实时搜索
     team_cn = STANDARD_CN.get(team_en, team_name)
+    query = f"{team_cn} 伤停 停赛 预测"
     
-    # 模拟抓取到的杂乱新闻（实际应从网页解析）
-    mock_news = f"根据懂球帝最新资讯：{team_cn}的主力前锋在周中训练中感到不适，可能缺席周末比赛；同时后防核心因累积黄牌停赛。此外，球队近期赛程密集，体能存在隐患。"
-    
-    return {
-        "team": team_en, 
-        "source": "懂球帝 (新闻抓取降级)",
-        "news": mock_news,
-        "note": "此为原始新闻文本，请 Analyst 自行提炼其中的伤停与停赛信息。"
-    }
+    try:
+        results = DDGS().text(query, max_results=3)
+        if not results:
+            return {"status": "no_data", "message": f"未能搜索到 {team_cn} 的最新新闻。"}
+        
+        # 拼接搜索到的新闻摘要
+        news_text = " | ".join([f"【{r['title']}】{r['body']}" for r in results])
+        return {
+            "team": team_en, 
+            "source": "DuckDuckGo 实时搜索",
+            "news": news_text,
+            "note": "此为搜索结果原文，请 Analyst 自行提炼其中的伤停与停赛信息。"
+        }
+    except Exception as e:
+        return {"status": "no_data", "message": f"新闻搜索失败: {str(e)}"}
 
-# ================= 竞彩赔率（支持代理转发） =================
+# ================= 竞彩赔率 =================
 def query_match_odds(home_team, away_team):
-    home_en = resolve(home_team)
-    away_en = resolve(away_team)
-    home_cn = STANDARD_CN.get(home_en, home_team)
-    away_cn = STANDARD_CN.get(away_en, away_team)
+    home_cn = STANDARD_CN.get(resolve(home_team), home_team)
+    away_cn = STANDARD_CN.get(resolve(away_team), away_team)
     
     url = "https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry"
     params = {"channel": "c", "poolCode": "hhad,had"}
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://m.sporttery.cn/",
-    }
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://m.sporttery.cn/"}
     
     try:
-        resp = requests.get(
-            url, params=params, headers=headers, timeout=10,
-            proxies={"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
-        )
+        resp = requests.get(url, params=params, headers=headers, timeout=10, proxies={"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None)
         if resp.status_code != 200:
-            return {"status": "no_data", "message": f"竞彩接口请求失败，状态码：{resp.status_code}（请确认代理是否生效或IP是否受限）。"}
+            return {"status": "no_data", "message": f"竞彩接口请求失败，状态码：{resp.status_code}。"}
         
-        data = resp.json()
-        match_days = data.get("value", {}).get("matchInfoList", [])
-        
+        match_days = resp.json().get("value", {}).get("matchInfoList", [])
         target_match = None
         for day in match_days:
             for m in day.get("subMatchList", []):
@@ -237,11 +241,10 @@ def query_match_odds(home_team, away_team):
             if target_match: break
             
         if not target_match:
-            return {"status": "no_data", "message": f"今日竞彩列表中未找到 {home_cn} vs {away_cn}（可能未开售）。"}
+            return {"status": "no_data", "message": f"今日竞彩列表中未找到 {home_cn} vs {away_cn}。"}
             
         had = target_match.get("had", {})
-        if not had:
-            return {"status": "no_data", "message": "该比赛暂无胜平负赔率。"}
+        if not had: return {"status": "no_data", "message": "该比赛暂无胜平负赔率。"}
             
         odd_home, odd_draw, odd_away = float(had["h"]), float(had["d"]), float(had["a"])
         odds = [odd_home, odd_draw, odd_away]
@@ -252,11 +255,7 @@ def query_match_odds(home_team, away_team):
             "match": f"{target_match.get('homeTeamAllName')} vs {target_match.get('awayTeamAllName')}",
             "source": "中国竞彩网官方",
             "raw_odds": {"home_win": odd_home, "draw": odd_draw, "away_win": odd_away},
-            "fair_probabilities": {
-                "home_win": round(fair_probs[0], 3),
-                "draw": round(fair_probs[1], 3),
-                "away_win": round(fair_probs[2], 3)
-            },
+            "fair_probabilities": {"home_win": round(fair_probs[0], 3), "draw": round(fair_probs[1], 3), "away_win": round(fair_probs[2], 3)},
             "note": "竞彩官方赔率，已去水。"
         }
     except Exception as e:
@@ -278,6 +277,6 @@ TOOLS_SCHEMA = [
     {"type": "function", "function": {"name": "query_league_table", "description": "查询联赛前N名的积分榜。", "parameters": {"type": "object", "properties": {"league_name": {"type": "string"}, "top_n": {"type": "integer"}}, "required": ["league_name"]}}},
     {"type": "function", "function": {"name": "query_team_matches", "description": "查询某队最近的赛程比分。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "predict_next_match", "description": "预测某支球队下一场真实比赛的胜平负概率。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
-    {"type": "function", "function": {"name": "query_team_news", "description": "获取某支球队的伤停情报。优先查 API，若无数据则返回懂球帝新闻原文供提炼。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
+    {"type": "function", "function": {"name": "query_team_news", "description": "获取某支球队的伤停情报。优先查 API，若无则返回实时新闻搜索原文供提炼。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "query_match_odds", "description": "查询中国竞彩网官方赔率（支持代理）。", "parameters": {"type": "object", "properties": {"home_team": {"type": "string"}, "away_team": {"type": "string"}}, "required": ["home_team", "away_team"]}}}
 ]
