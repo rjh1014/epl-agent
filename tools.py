@@ -2,13 +2,11 @@ import os
 import json
 import requests
 import pandas as pd
-import random
-import urllib.parse
-from bs4 import BeautifulSoup
 from predict_v2 import predict
 
 LEAGUE_NAMES = {"PL": "英超", "PD": "西甲", "BL1": "德甲", "SA": "意甲", "FL1": "法甲"}
 
+# 球队中英文别名映射（供用户输入模糊匹配）
 ALIAS = {
     "利物浦": "Liverpool FC", "红军": "Liverpool FC", "曼城": "Manchester City FC", "曼彻斯特城": "Manchester City FC", "蓝月亮": "Manchester City FC",
     "阿森纳": "Arsenal FC", "枪手": "Arsenal FC", "切尔西": "Chelsea FC", "蓝军": "Chelsea FC", "曼联": "Manchester United FC", "曼彻斯特联": "Manchester United FC", "红魔": "Manchester United FC",
@@ -22,6 +20,21 @@ ALIAS = {
     "国米": "Inter Milan", "国际米兰": "Inter Milan", "AC米兰": "AC Milan", "尤文": "Juventus FC", "尤文图斯": "Juventus FC", "那不勒斯": "SSC Napoli", 
     "罗马": "AS Roma", "拉齐奥": "SS Lazio", "亚特兰大": "Atalanta BC",
     "巴黎": "Paris Saint-Germain FC", "大巴黎": "Paris Saint-Germain FC", "马赛": "Olympique de Marseille", "摩纳哥": "AS Monaco FC", "里昂": "Olympique Lyonnais", "里尔": "LOSC Lille",
+}
+
+# 专供竞彩网查询的标准官方中文名映射
+STANDARD_CN = {
+    "Liverpool FC": "利物浦", "Manchester City FC": "曼城", "Arsenal FC": "阿森纳", "Chelsea FC": "切尔西", "Manchester United FC": "曼联",
+    "Tottenham Hotspur FC": "热刺", "Newcastle United FC": "纽卡斯尔", "Aston Villa FC": "维拉", "Brighton & Hove Albion FC": "布莱顿", 
+    "West Ham United FC": "西汉姆", "Wolverhampton Wanderers FC": "狼队", "Everton FC": "埃弗顿", "Fulham FC": "富勒姆", 
+    "Crystal Palace FC": "水晶宫", "Brentford FC": "布伦特福德", "Leicester City FC": "莱斯特城", "Ipswich Town FC": "伊普斯维奇", "Nottingham Forest FC": "诺丁汉森林",
+    "Real Madrid CF": "皇马", "FC Barcelona": "巴萨", "Club Atlético de Madrid": "马竞", "Villarreal CF": "比利亚雷亚尔", 
+    "Athletic Club": "毕尔巴鄂", "Real Sociedad": "皇家社会", "Real Betis": "贝蒂斯", "Sevilla FC": "塞维利亚",
+    "FC Bayern München": "拜仁", "Borussia Dortmund": "多特", "Bayer 04 Leverkusen": "勒沃库森", "RB Leipzig": "莱比锡", 
+    "Eintracht Frankfurt": "法兰克福", "VfB Stuttgart": "斯图加特",
+    "Inter Milan": "国米", "AC Milan": "AC米兰", "Juventus FC": "尤文", "SSC Napoli": "那不勒斯", 
+    "AS Roma": "罗马", "SS Lazio": "拉齐奥", "Atalanta BC": "亚特兰大",
+    "Paris Saint-Germain FC": "巴黎", "Olympique de Marseille": "马赛", "AS Monaco FC": "摩纳哥", "Olympique Lyonnais": "里昂", "LOSC Lille": "里尔"
 }
 
 def resolve(name):
@@ -148,7 +161,7 @@ def predict_next_match(team_name):
     return {"match_date": date_val, "home": h, "away": a, "prediction": pred}
 
 # ================= 接入真实 API 的 RAG 检索工具 =================
-API_FOOTBALL_KEY = "填入你的真实API-Football-Key"  # ⚠️ 记得换成你的真实Key
+API_FOOTBALL_KEY = "a8b2fcc1bddf8cc9b3ddb234170da171"  # ⚠️ 记得换成你的真实Key
 
 def query_team_news(team_name):
     team_en = resolve(team_name)
@@ -176,66 +189,73 @@ def query_team_news(team_name):
     except Exception:
         return {"status": "no_data", "message": "API 接口请求超时或异常。"}
 
-# ================= 爬虫：抓取真实赔率 =================
+# ================= 中国竞彩网官方赔率爬虫 =================
 def query_match_odds(home_team, away_team):
-    """优先通过爬虫抓取 500 彩票网真实赔率；若失败则生成带标注的模拟盘口"""
-    home, away = resolve(home_team), resolve(away_team)
+    """查询中国竞彩网官方胜平负赔率，并计算去水公平概率"""
+    home_en = resolve(home_team)
+    away_en = resolve(away_team)
     
-    # 1. 尝试爬取（注意：云端服务器可能被国内网站封锁 IP，若失败自动进入兜底）
-    url = "https://odds.500.com/fenxi/oupei-1088411.shtml"  # 示例页面
+    # 使用标准中文名去匹配
+    home_cn = STANDARD_CN.get(home_en, home_team)
+    away_cn = STANDARD_CN.get(away_en, away_team)
+    
+    url = "https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry"
+    params = {"channel": "c", "poolCode": "hhad,had"}
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://m.sporttery.cn/",
     }
     
     try:
-        resp = requests.get(url, headers=headers, timeout=5)
-        resp.encoding = 'gbk'
-        soup = BeautifulSoup(resp.text, "html.parser")
-        rows = soup.select("table#datatb tr")
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return {"status": "no_data", "message": f"竞彩接口请求失败，状态码：{resp.status_code}（云端服务器可能受IP限制）。"}
         
-        if len(rows) >= 2:
-            cols = rows[1].find_all("td")
-            odd_home = float(cols[3].text.strip())
-            odd_draw = float(cols[4].text.strip())
-            odd_away = float(cols[5].text.strip())
-            
-            # 去水计算
-            odds = [odd_home, odd_draw, odd_away]
-            inv_sum = sum(1 / o for o in odds)
-            fair_probs = [(1 / o) / inv_sum for o in odds]
-            
-            return {
-                "match": f"{home} vs {away}",
-                "bookmaker": "500彩票网 (真实爬虫数据)",
-                "raw_odds": {"home_win": odd_home, "draw": odd_draw, "away_win": odd_away},
-                "fair_probabilities": {"home_win": round(fair_probs[0], 3), "draw": round(fair_probs[1], 3), "away_win": round(fair_probs[2], 3)},
-                "note": "数据来自网页爬虫，已去水。"
-            }
-    except Exception as e:
-        pass  # 抓取失败，静默进入兜底流程
-
-    # 2. 兜底逻辑：利用模型概率反向生成模拟赔率（防止云端IP被封导致无数据）
-    try:
-        pred = predict_match(home, away)
-        p_home = pred.get('p_home', 0.33)
-        p_draw = pred.get('p_draw', 0.33)
-        p_away = pred.get('p_away', 0.34)
+        data = resp.json()
+        match_days = data.get("value", {}).get("matchInfoList", [])
         
-        # 模拟博彩公司抽水（通常总概率在 105% - 110% 之间）
-        vig = 1.06
-        odd_home = round(1 / (p_home * vig), 2)
-        odd_draw = round(1 / (p_draw * vig), 2)
-        odd_away = round(1 / (p_away * vig), 2)
+        target_match = None
+        for day in match_days:
+            for m in day.get("subMatchList", []):
+                h_name = m.get("homeTeamAllName", "")
+                a_name = m.get("awayTeamAllName", "")
+                
+                # 使用标准中文名进行匹配
+                if home_cn in h_name and away_cn in a_name:
+                    target_match = m
+                    break
+            if target_match: break
+            
+        if not target_match:
+            return {"status": "no_data", "message": f"今日竞彩列表中未找到 {home_cn} vs {away_cn} 的比赛（可能今日未开售此场）。"}
+            
+        had = target_match.get("had", {})
+        if not had:
+            return {"status": "no_data", "message": "该比赛暂无胜平负（had）赔率。"}
+            
+        odd_home = float(had.get("h"))
+        odd_draw = float(had.get("d"))
+        odd_away = float(had.get("a"))
+        
+        # 去水计算
+        odds = [odd_home, odd_draw, odd_away]
+        inv_sum = sum(1 / o for o in odds)
+        fair_probs = [(1 / o) / inv_sum for o in odds]
         
         return {
-            "match": f"{home} vs {away}",
-            "bookmaker": "模型模拟盘口 (爬虫失败，启用兜底)",
+            "match": f"{target_match.get('homeTeamAllName')} vs {target_match.get('awayTeamAllName')}",
+            "source": "中国竞彩网官方",
             "raw_odds": {"home_win": odd_home, "draw": odd_draw, "away_win": odd_away},
-            "fair_probabilities": {"home_win": p_home, "draw": p_draw, "away_win": p_away},
-            "note": "⚠️ 真实爬虫请求失败（可能受云端IP限制），此为基于模型概率反向推算的模拟赔率。"
+            "fair_probabilities": {
+                "home_win": round(fair_probs[0], 3),
+                "draw": round(fair_probs[1], 3),
+                "away_win": round(fair_probs[2], 3)
+            },
+            "note": "竞彩官方赔率，已去水。"
         }
-    except Exception:
-        return {"status": "no_data", "message": "未能获取赔率，且模型兜底失败。"}
+        
+    except Exception as e:
+        return {"status": "no_data", "message": f"请求异常: {str(e)}"}
 
 TOOL_MAP = {
     "predict_match": predict_match, "query_standings": query_standings,
@@ -254,5 +274,5 @@ TOOLS_SCHEMA = [
     {"type": "function", "function": {"name": "query_team_matches", "description": "查询某队最近的赛程比分。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "predict_next_match", "description": "预测某支球队下一场真实比赛的胜平负概率。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "query_team_news", "description": "检索某支球队的最新真实伤停情报。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
-    {"type": "function", "function": {"name": "query_match_odds", "description": "获取赛事的真实博彩盘口（包含去水概率）。优先爬取真实数据，若失败会返回模型模拟盘口。", "parameters": {"type": "object", "properties": {"home_team": {"type": "string"}, "away_team": {"type": "string"}}, "required": ["home_team", "away_team"]}}}
+    {"type": "function", "function": {"name": "query_match_odds", "description": "查询中国竞彩网官方真实胜平负赔率，并计算去水后的市场公平概率。", "parameters": {"type": "object", "properties": {"home_team": {"type": "string"}, "away_team": {"type": "string"}}, "required": ["home_team", "away_team"]}}}
 ]
