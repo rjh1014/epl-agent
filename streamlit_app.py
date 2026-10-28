@@ -38,7 +38,7 @@ def run_agent(user_input, history):
     return "抱歉，这个问题我暂时处理不了。"
 
 st.set_page_config(page_title="英超赛果决策 Agent", page_icon="⚽")
-st.title("⚽ 英超赛果决策 Agent")
+st.title("⚽ 五大联赛赛果决策 Agent")
 st.caption("可以问：利物浦现在第几 / 曼城打阿森纳谁赢 / 阿森纳最近5场战绩 / 利物浦和曼城历史交锋谁占优")
 
 if "history" not in st.session_state:
