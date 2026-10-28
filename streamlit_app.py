@@ -16,10 +16,10 @@ client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com")
 
 def run_agent(user_input, history):
     messages = [{"role": "system", "content":
-    "你是一个五大联赛足球数据分析助手，支持英超、西甲、德甲、意甲、法甲。"
-    "你可以调用工具查询积分榜、近期战绩、历史交锋、预测比赛。"
-    "用中文回答，简洁准确。不要编造工具没有返回的数据。"
-    "如果用户问的球队不在五大联赛范围内，如实告知。"}]
+            "你是一个五大联赛足球数据分析助手，支持英超、西甲、德甲、意甲、法甲。"
+            "你可以调用工具查询积分榜、近期战绩、历史交锋、预测比赛。"
+            "重要规则：请直接提取用户问题中的球队名称作为参数传入工具。不要擅自翻译或修改名字（例如把'巴萨'改成'巴塞罗那队'）。"
+            "如果工具返回了结果，如实总结；如果工具报错，直接说明报错原因。不要凭空编造。"}]
     messages += history
     messages.append({"role": "user", "content": user_input})
 
@@ -67,13 +67,3 @@ if user_input := st.chat_input("输入你的问题…"):
         st.write(answer)
 
     st.session_state.history.append({"role": "assistant", "content": answer})
-if st.button("点我测试西甲数据"):
-    import traceback
-    from tools import query_standings, predict_match
-    st.write("查巴萨的结果：", query_standings("巴萨"))
-    
-    try:
-        st.write("预测巴萨打皇马：", predict_match("巴萨", "皇马"))
-    except Exception as e:
-        st.error(f"预测工具崩溃了，报错是：{e}")
-        st.code(traceback.format_exc())
