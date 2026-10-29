@@ -8,9 +8,9 @@ from predict_v2 import predict
 
 # ================= API 密钥配置 =================
 # 优先从云端 Secrets 读取，读不到则使用备用 Key（注意字符串必须带引号）
-QIUXIAOCE_API_KEY = os.getenv("a8b2fcc1bddf8cc9b3ddb234170da171", "填入你的球小策Key备用")
+QIUXIAOCE_API_KEY = os.getenv("QIUXIAOCE_API_KEY", "a8b2fcc1bddf8cc9b3ddb234170da171")
 PINNWIRE_API_KEY = os.getenv("PINNWIRE_API_KEY", "demo")
-LIVE_FOOTBALL_API_KEY = os.getenv("a69c07b21ede3b3c84fbb57d2394d1c36fb62d5839312afc77ff2fd980e11fd6", "填入你的LiveFootballAPI_Key")
+LIVE_FOOTBALL_API_KEY = os.getenv("LIVE_FOOTBALL_API_KEY", "填入你的LiveFootballAPI_Key")
 
 qxc_client = QiuXiaoCeClient(api_key=QIUXIAOCE_API_KEY)
 
@@ -177,49 +177,39 @@ def predict_next_match(team_name):
 
 # ================= 多源情报查询工具 =================
 def query_team_intelligence(team_name):
-    """
-    多源情报查询（优先级：球小策 -> Live Football API -> 雷速体育）
-    返回格式：{"source": "...", "injuries": [...], "lineups": [...]}
-    """
     team_en = resolve(team_name)
     
-    # -------- 优先级 1: 球小策 --------
+    # 优先级 1: 球小策
     try:
         search_name = team_en.replace("FC", "").replace("CF", "").strip()
         teams = qxc_client.search_teams(search_name)
         if teams:
             qxc_team_id = teams[0]["team_id"]
             fixtures = qxc_client.get_fixtures(team_id=qxc_team_id, season=2026)
-            if not fixtures:
-                fixtures = qxc_client.get_fixtures(team_id=qxc_team_id, season=2024)
-            
+            if not fixtures: fixtures = qxc_client.get_fixtures(team_id=qxc_team_id, season=2024)
             if fixtures:
                 upcoming = [f for f in fixtures if f.get("status") in ("NS", "TBD", "未开始")]
                 target_match = upcoming[0] if upcoming else fixtures[-1]
                 fixture_id = target_match["fixture_id"]
-                
                 pack_data = qxc_client.get_match_pack(fixture_id=fixture_id)
                 pack = pack_data.get("pack", {})
                 injuries = pack.get("injuries") or pack.get("missing_players") or pack.get("lineups_injuries")
-                
                 if injuries:
                     if isinstance(injuries, list):
                         inj_list = [f"{i.get('player_name', '未知')} ({i.get('reason', '未知')})" for i in injuries[:8]]
                     elif isinstance(injuries, dict):
                         inj_list = [f"主队：{injuries.get('home', [])}", f"客队：{injuries.get('away', [])}"]
-                    else:
-                        inj_list = [str(injuries)]
+                    else: inj_list = [str(injuries)]
                     return {"source": "球小策", "injuries": inj_list, "lineups": []}
     except Exception:
-        pass  # 静默失败，尝试下一个源
+        pass
 
-    # -------- 优先级 2: Live Football API --------
+    # 优先级 2: Live Football API
     try:
         from datetime import date
         today = date.today().isoformat()
         match_url = f"https://live-football-api.com/api/v1/matches?api_key={LIVE_FOOTBALL_API_KEY}&date={today}&lang=en"
         match_resp = requests.get(match_url, timeout=10)
-        
         match_id = None
         if match_resp.status_code == 200:
             matches = match_resp.json().get("data", {}).get("matches", [])
@@ -230,7 +220,6 @@ def query_team_intelligence(team_name):
                 if h_word in h_name or h_word in a_name:
                     match_id = m.get("id")
                     break
-        
         if match_id:
             inj_url = f"https://live-football-api.com/api/v1/injuries?api_key={LIVE_FOOTBALL_API_KEY}&match_id={match_id}&lang=en"
             inj_resp = requests.get(inj_url, timeout=10)
@@ -250,28 +239,19 @@ def query_team_intelligence(team_name):
                 away_xi = [p.get('name') for p in lin_data.get('away', {}).get('starting_xi', [])]
                 if home_xi or away_xi:
                     lin_list = [f"主队首发：{', '.join(home_xi)}", f"客队首发：{', '.join(away_xi)}"]
-            
             if inj_list or lin_list:
                 return {"source": "Live Football API", "injuries": inj_list, "lineups": lin_list}
     except Exception:
         pass
 
-    # -------- 优先级 3: 雷速体育（示意框架） --------
-    # 因为雷速反爬严，这里暂留空。未来如果前两个接口都失效，可以在此引入 Playwright。
-    try:
-        pass
-    except Exception:
-        pass
-
-    # -------- 全部失败 --------
     return {"status": "no_data", "message": "所有情报源均未返回有效数据。"}
 
-# ================= 真实赔率查询（InferSports + pinnwire） =================
+# ================= 真实赔率与盘口查询工具 =================
 def query_match_odds(home_team, away_team):
     home_en = resolve(home_team)
     away_en = resolve(away_team)
     
-    # ---------- 尝试方案一：InferSports ----------
+    # 尝试 InferSports
     try:
         find_url = "https://api.infersports.dev/v1/mcp/find_match"
         find_payload = {"query": f"{home_en} {away_en}"}
@@ -291,18 +271,18 @@ def query_match_odds(home_team, away_team):
                     if fair_probs and all(k in fair_probs for k in ["home", "draw", "away"]):
                         return {
                             "match": f"{home_en} vs {away_en}",
-                            "source": "InferSports (免注册)",
+                            "source": "InferSports",
                             "fair_probabilities": {
                                 "home_win": round(fair_probs["home"], 3),
                                 "draw": round(fair_probs["draw"], 3),
                                 "away_win": round(fair_probs["away"], 3)
                             },
-                            "note": "数据来自 InferSports 实时市场，已去水。"
+                            "note": "数据来自实时市场，已去水。"
                         }
     except Exception:
         pass
 
-    # ---------- 尝试方案二：pinnwire ----------
+    # 尝试 pinnwire（通常有更丰富的市场数据，如亚盘、大小球）
     try:
         fixture_url = f"https://pinnwire.com/api/v1/prematch/fixtures?sport_id=1&key={PINNWIRE_API_KEY}"
         resp_fix = requests.get(fixture_url, timeout=10)
@@ -313,7 +293,6 @@ def query_match_odds(home_team, away_team):
             for fx in fixtures:
                 home_name = fx.get("home_team", "").lower()
                 away_name = fx.get("away_team", "").lower()
-                
                 h_word = home_en.split()[0].lower()
                 a_word = away_en.split()[0].lower()
                 
@@ -328,21 +307,30 @@ def query_match_odds(home_team, away_team):
                         if resp_odds.status_code == 200:
                             odds_data = resp_odds.json()
                             fair_probs = odds_data.get("no_vig_probabilities", {})
+                            
+                            # 提取盘口信息（如果API有返回）
+                            ah_line = odds_data.get("asian_handicap_line", "未知")
+                            ou_line = odds_data.get("over_under_line", "未知")
+                            
                             if fair_probs and all(k in fair_probs for k in ["home", "draw", "away"]):
                                 return {
                                     "match": f"{fx.get('home_team')} vs {fx.get('away_team')}",
-                                    "source": "pinnwire (Pinnacle 去水赔率)",
+                                    "source": "pinnwire (Pinnacle)",
                                     "fair_probabilities": {
                                         "home_win": round(fair_probs["home"], 3),
                                         "draw": round(fair_probs["draw"], 3),
                                         "away_win": round(fair_probs["away"], 3)
+                                    },
+                                    "handicap_info": {
+                                        "asian_handicap": ah_line,
+                                        "over_under": ou_line
                                     },
                                     "note": "数据来自 pinnwire 实时 Pinnacle 市场，已去水。"
                                 }
     except Exception:
         pass
 
-    return {"status": "no_data", "message": "当前未能从 InferSports 或 pinnwire 获取到该场比赛的实时赔率，请稍后重试。"}
+    return {"status": "no_data", "message": "当前未能获取到赔率。"}
 
 TOOL_MAP = {
     "predict_match": predict_match, "query_standings": query_standings,
@@ -361,5 +349,5 @@ TOOLS_SCHEMA = [
     {"type": "function", "function": {"name": "query_team_matches", "description": "查询某队最近的赛程比分。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "predict_next_match", "description": "预测某支球队下一场真实比赛的胜平负概率。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string"}}, "required": ["team_name"]}}},
     {"type": "function", "function": {"name": "query_team_intelligence", "description": "查询某支球队的最新伤停情报和预测首发阵容（多源容错）。", "parameters": {"type": "object", "properties": {"team_name": {"type": "string", "description": "球队名称，中文或英文均可"}}, "required": ["team_name"]}}},
-    {"type": "function", "function": {"name": "query_match_odds", "description": "查询海外真实博彩赔率（InferSports / pinnwire）。", "parameters": {"type": "object", "properties": {"home_team": {"type": "string"}, "away_team": {"type": "string"}}, "required": ["home_team", "away_team"]}}}
+    {"type": "function", "function": {"name": "query_match_odds", "description": "查询海外真实博彩赔率与盘口信息（InferSports / pinnwire）。", "parameters": {"type": "object", "properties": {"home_team": {"type": "string"}, "away_team": {"type": "string"}}, "required": ["home_team", "away_team"]}}}
 ]
