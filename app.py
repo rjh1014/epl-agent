@@ -1,23 +1,16 @@
 import os
-
-# ================= 强制安装云端缺失的依赖包 =================
-os.system("pip install qiuxiaoce requests pandas scikit-learn joblib")
-
 import json
 import streamlit as st
 from openai import OpenAI
 from tools import TOOL_MAP, TOOLS_SCHEMA
 
-# 页面配置（必须放在最前面）
+# 页面配置
 st.set_page_config(page_title="五大联赛 AI 决策助手", page_icon="🏆", layout="wide")
 
-# ================= 获取 DeepSeek API Key =================
-# ⚠️ 直接把下面引号里的字换成你真实的 DeepSeek 密钥（不要漏掉 sk-）
-API_KEY = "sk-9daba59e4a44475fb1439c20c4ca7132" 
-
-# 检查是否填对了
-if "填入你真实的" in API_KEY:
-    st.error("⚠️ 请先在代码中填入你真实的 DeepSeek API Key！")
+# 从 Streamlit Secrets 读取 Key
+API_KEY = st.secrets.get("DEEPSEEK_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+if not API_KEY:
+    st.error("没有找到 DEEPSEEK_API_KEY。请在 Streamlit Secrets 中配置。")
     st.stop()
 
 client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com")
@@ -31,15 +24,15 @@ with st.sidebar:
     **它具备什么能力？**
     - 📊 **数据洞察**：查积分榜、近期战绩、历史交锋。
     - 🤖 **AI 预测**：使用多联赛随机森林模型预测胜平负。
-    - 📰 **情报检索**：自动分析球队最新伤停与状态新闻。
-    - 🎲 **盘口对比**：抓取竞彩官方赔率并计算去水真实概率。
+    - 📰 **情报检索**：多源伤停情报（球小策/Live Football）。
+    - 🎲 **盘口对比**：海外实时赔率与模型对比。
     """)
     st.divider()
-    st.caption("Powered by ModelScope, DeepSeek & scikit-learn")
+    st.caption("Powered by Streamlit, DeepSeek & scikit-learn")
 
 # ================= 主界面 =================
 st.title("⚽ 五大联赛 AI 决策助手")
-st.caption("你可以直接问我：曼城下一场打谁？结合新闻预测一下 / 意甲前四是谁 / 拜仁最近战绩如何")
+st.caption("你可以直接问我：阿森纳有哪些伤停？/ 威尼斯打国米谁赢？/ 曼城下一场预测一下。")
 
 # 初始化聊天记录
 if "history" not in st.session_state:
@@ -58,8 +51,8 @@ def run_agent(user_input, history):
             "【核心规则】："
             "1. 如果工具返回 `status: no_data`，用分析师口吻说明'情报库暂未覆盖'，并提示不确定性。"
             "2. 当用户询问伤停或首发时，优先调用 `query_team_intelligence` 工具，它会自动按优先级尝试多个数据源。"
-            "3. 如果 `query_team_intelligence` 返回了 `source` 字段，请在回答中注明数据来源（如“据球小策数据”、“据Live Football API”）。"
-            "4. 如果 `predict_match` 返回的 `note` 中包含'严重警告'或'缺乏历史数据'，你必须在回答开头声明：'该模型预测因数据缺失而失真，仅供参考'。"
+            "3. 如果 `query_team_intelligence` 返回了 `source` 字段，请在回答中注明数据来源。"
+            "4. 如果 `predict_match` 返回的 `note` 中包含'严重警告'，你必须在回答开头声明：'该模型预测因数据缺失而失真，仅供参考'。"
             "5. 如果赔率获取失败，如实告知用户。"
             "6. 【极重要-常识兜底】：如果模型概率因数据缺失而严重失真，你必须结合你的足球常识强势纠正它。"
         }
@@ -68,11 +61,12 @@ def run_agent(user_input, history):
     messages.append({"role": "user", "content": user_input})
 
     for _ in range(5):
-        resp = client.chat.completions.create(
-            model="deepseek-chat", 
-            messages=messages, 
-            tools=TOOLS_SCHEMA
-        )
+        # 捕获大模型 API 报错（如 400 参数错误、401 余额不足、429 频率超限等）
+        try:
+            resp = client.chat.completions.create(model="deepseek-chat", messages=messages, tools=TOOLS_SCHEMA)
+        except Exception as e:
+            return f"⚠️ 大模型 API 调用失败！具体原因：{str(e)}"
+            
         msg = resp.choices[0].message
         
         # 如果不需要调用工具，直接返回最终结果
@@ -85,8 +79,13 @@ def run_agent(user_input, history):
         # 在界面上动态展示工具调用过程
         for tc in msg.tool_calls:
             func_name = tc.function.name
-            args = json.loads(tc.function.arguments)
             
+            # 捕获参数解析错误
+            try:
+                args = json.loads(tc.function.arguments)
+            except Exception:
+                args = {}
+                
             friendly_names = {
                 "predict_match": "正在计算比赛概率",
                 "query_standings": "正在查询积分榜",
@@ -95,14 +94,21 @@ def run_agent(user_input, history):
                 "query_league_table": "正在查询联赛排名",
                 "query_team_matches": "正在查询赛程",
                 "predict_next_match": "正在预测下一场比赛",
-                "query_team_news": "正在检索最新伤停情报",
-                "query_match_odds": "正在获取竞彩盘口数据"
+                "query_team_intelligence": "正在多源检索最新伤停情报",
+                "query_match_odds": "正在获取实时赔率数据"
             }
             status_text = friendly_names.get(func_name, f"正在调用 {func_name}")
             
             with st.status(f"{status_text}...", expanded=False) as status:
                 func = TOOL_MAP.get(func_name)
-                result = func(**args) if func else {"error": "未知工具"}
+                if func:
+                    # 捕获工具执行错误（如网络超时、API 报错等）
+                    try:
+                        result = func(**args)
+                    except Exception as e:
+                        result = {"status": "error", "message": f"工具执行失败: {str(e)}"}
+                else:
+                    result = {"status": "error", "message": "未知工具"}
                 status.update(label=f"{status_text} 完成", state="complete")
             
             messages.append({
@@ -111,7 +117,7 @@ def run_agent(user_input, history):
                 "content": json.dumps(result, ensure_ascii=False)
             })
             
-    return "抱歉，这个问题我暂时处理不了。"
+    return "抱歉，这个问题我暂时处理不了（超过最大工具调用轮数）。"
 
 # ================= 接收输入 =================
 if user_input := st.chat_input("输入你的问题…"):
